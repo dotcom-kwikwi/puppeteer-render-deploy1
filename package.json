@@ -1,0 +1,30 @@
+{
+  "name": "puppeteer-render-deploy",
+  "version": "1.0.0",
+  "description": "Demo Scraping with Puppeteer on Server Render.com",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index",
+    "build": "echo \"Nothing do build.\""
+  },
+  "author": "Artur Medeiros <contato@arjos.com.br>",
+  "keywords": [
+    "puppeteer",
+    "render",
+    "render.com",
+    "deploy",
+    "docker"
+  ],
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "express": "^5.0.0",
+    "nodemon": "^3.1.9",
+    "puppeteer": "^24.1.1"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

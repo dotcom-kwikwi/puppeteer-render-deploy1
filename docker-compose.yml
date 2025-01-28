@@ -1,0 +1,38 @@
+networks:
+  ms_render_docker:
+    driver: bridge
+services:
+  puppeteer_proxy:
+    image: nginx:latest
+    container_name: puppeteer_proxy
+    restart: unless-stopped
+    volumes:
+      - ./docker/proxy/examples:/etc/nginx/conf.d
+      - ./docker/proxy/nginx.conf:/etc/nginx/nginx.conf
+      - ./.logs/proxy:/var/log/nginx
+      - ./:/var/www/html
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - ms_render_docker
+    depends_on:
+      - puppeteer_app
+  puppeteer_app:
+    image: puppeteer_app:0.0.1
+    container_name: puppeteer_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./:/app
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+    restart: always
+    networks:
+      - ms_render_docker
