@@ -1,10 +1,7 @@
-# Use a imagem base do Ubuntu
 FROM ubuntu:22.04
 
-# Define o diretório de trabalho
 WORKDIR /app
 
-# Atualiza os pacotes e instala dependências básicas
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
     curl \
@@ -17,7 +14,6 @@ RUN apt-get update && apt-get upgrade -y && \
     sudo && \
     apt-get clean
 
-# Instala as dependências necessárias para o Puppeteer
 RUN apt-get install -y \
     gconf-service \
     libgbm-dev \
@@ -59,31 +55,24 @@ RUN apt-get install -y \
     xdg-utils && \
     apt-get clean
 
-# Instala o Node.js (versão 18) e o Yarn
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
     npm install -g yarn
 
-# Instala o Google Chrome (para Puppeteer)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /usr/share/keyrings/google-chrome-keyring.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y google-chrome-stable
 
-# Copia os arquivos da aplicação para o container
 COPY . .
 
 COPY ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Instala depen
 RUN yarn install
 
-# Exponha a porta da aplicação (ajuste se necessário)
 EXPOSE 3000
 
-# Define o entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Comando para iniciar a aplicação
 CMD ["yarn", "start"]

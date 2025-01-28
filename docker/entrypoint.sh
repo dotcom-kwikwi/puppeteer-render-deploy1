@@ -1,10 +1,9 @@
 #!/bin/sh
 
-echo "🏗️   Iniciando a montagem do seu Container de Node.JS..."
+echo "🏗️   Starting the setup of your Node.JS Container..."
 
 cd /app && yarn install
 
 echo "🚀   Deploy completed! The application is updated."
 
-# Manter o container ativo
 exec "$@"
