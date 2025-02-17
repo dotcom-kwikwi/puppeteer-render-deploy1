@@ -32,7 +32,7 @@ app.get("/scrape", async (req, res) => {
                     "--single-process",
                     "--no-zygote",
                 ],
-                timeout: 60000,  // Increasing the timeout to 60 seconds
+                timeout: 120000,  // Increasing the timeout to 60 seconds
             });
 
             const page = await browser.newPage();
