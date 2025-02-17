@@ -1,26 +1,10 @@
 import express from "express";
 import puppeteer from "puppeteer";
 import * as dotenv from "dotenv";
+import { mkdir } from "fs/promises";
 
 dotenv.config();
 const app = express();
-
-app.get("/", async (req, res) => {
-    try {
-        res.send({ 
-            msg: "Server is running. Use /scrape endpoint to get data.",
-            success: true,
-            status_code: 200 
-        });
-    } catch (error) {
-        console.error("Error:", error);
-        res.status(500).send({
-            msg: "Server error",
-            success: false,
-            status_code: 500
-        });
-    }
-});
 
 app.get("/scrape", async (req, res) => {
     let browser;
@@ -44,16 +28,36 @@ app.get("/scrape", async (req, res) => {
             timeout: 60000
         });
 
-        // Zamenjeno waitForTimeout sa setTimeout
+        // Screenshot 1 - posle učitavanja stranice
+        await mkdir("/tmp/screenshots", { recursive: true });
+        await page.screenshot({ path: "/tmp/screenshots/after-load.png" });
+        console.log("Screenshot 1 sačuvan: /tmp/screenshots/after-load.png");
+
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         const cookieButton = await page.$('#cookieConsentModal button');
         if (cookieButton) {
             await cookieButton.click();
             await new Promise(resolve => setTimeout(resolve, 1000));
+            // Screenshot 2 - posle cookie dialoga
+            await page.screenshot({ path: "/tmp/screenshots/after-cookies.png" });
+            console.log("Screenshot 2 sačuvan: /tmp/screenshots/after-cookies.png");
         }
 
-        await page.waitForSelector('.AdItem_adOuterHolder__lACeh', { timeout: 30000 });
+        try {
+            await page.waitForSelector('.AdItem_adOuterHolder__lACeh', { 
+                timeout: 30000,
+                visible: true
+            });
+        } catch (error) {
+            // Screenshot 3 - kada selektor nije pronađen
+            await page.screenshot({ 
+                path: "/tmp/screenshots/selector-error.png",
+                fullPage: true 
+            });
+            console.log("Screenshot 3 sačuvan: /tmp/screenshots/selector-error.png");
+            throw error;
+        }
 
         const firstAdLink = await page.$eval(
             '.AdItem_adOuterHolder__lACeh a',
@@ -65,14 +69,30 @@ app.get("/scrape", async (req, res) => {
         res.send({
             success: true,
             link: firstAdLink,
+            screenshots: [
+                "/tmp/screenshots/after-load.png",
+                "/tmp/screenshots/after-cookies.png"
+            ],
             status_code: 200
         });
 
     } catch (error) {
-        console.error("Greška pri skrejpanju:", error);
+        console.error("Greška pri skrejpanju:", {
+            message: error.message,
+            stack: error.stack,
+            screenshots: [
+                "/tmp/screenshots/after-load.png",
+                "/tmp/screenshots/after-cookies.png",
+                "/tmp/screenshots/selector-error.png"
+            ]
+        });
         res.status(500).send({
             success: false,
             error: error.message,
+            debug: {
+                screenshots: "/tmp/screenshots/",
+                hint: "Provjerite Render.com logs za putanje screenshotova"
+            },
             status_code: 500
         });
     } finally {
@@ -80,9 +100,4 @@ app.get("/scrape", async (req, res) => {
             await browser.close();
         }
     }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
 });
