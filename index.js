@@ -36,7 +36,7 @@ app.get("/scrape", async (req, res) => {
             });
 
             const page = await browser.newPage();
-            await page.goto("https://www.arjos.com.br");
+            await page.goto("https://www.kupujemprodajem.com/");
             const title = await page.title();
 
             console.log("Puppeteer started successfully!");
