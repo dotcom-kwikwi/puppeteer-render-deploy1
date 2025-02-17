@@ -36,7 +36,8 @@ app.get("/scrape", async (req, res) => {
             });
 
             const page = await browser.newPage();
-            console.log(navigator.userAgent);
+            console.log("User-Agent:", await page.evaluate(() => navigator.userAgent));
+
 
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36");
 
