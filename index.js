@@ -36,7 +36,7 @@ app.get("/scrape", async (req, res) => {
             });
 
             const page = await browser.newPage();
-            await page.goto("https://www.kupujemprodajem.com/");
+            await page.goto("https://www.kupujemprodajem.com/bela-tehnika-i-kucni-aparati/ves-masine/pretraga?categoryId=15&groupId=188&locationId=1&priceTo=150&currency=eur&order=posted%20desc");
             const title = await page.title();
 
             console.log("Puppeteer started successfully!");
