@@ -47,6 +47,32 @@ app.get("/scrape", async (req, res) => {
             });
 
             console.log("🌍 Stranica učitana. Čekam oglase...");
+           
+            const cookieButton = await page.$('button[aria-label="Prihvati"]'); 
+            if (cookieButton) {
+                await cookieButton.click();
+                console.log("✅ Kliknuto na dugme za kolačiće");
+                await new Promise(resolve => setTimeout(resolve, 10000)); // Sačekaj još malo da se oglasi učitaju
+                }
+
+            async function autoScroll(page) {
+    await page.evaluate(async () => {
+        await new Promise((resolve) => {
+            let totalHeight = 0;
+            const distance = 500;
+            const timer = setInterval(() => {
+                const scrollHeight = document.body.scrollHeight;
+                window.scrollBy(0, distance);
+                totalHeight += distance;
+
+                if (totalHeight >= scrollHeight - window.innerHeight) {
+                    clearInterval(timer);
+                    resolve();
+                }
+            }, 500);
+        });
+    });
+}
             
             const title = await page.title();
             
