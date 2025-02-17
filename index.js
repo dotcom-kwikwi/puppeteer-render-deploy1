@@ -63,7 +63,7 @@ app.get("/scrape", async (req, res) => {
         });
     } finally {
         if (browser) {
-            await browser.close();
+            await page.close();
         }
     }
 });
