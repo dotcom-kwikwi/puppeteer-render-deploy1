@@ -42,7 +42,7 @@ app.get("/scrape", async (req, res) => {
             });
             const title = await page.title();
 
-            //await page.waitForTimeout(5000); // Sačekaj malo pre nego što tražiš selektor
+            
 
         const isSelectorPresent = await page.$('.AdItem_adOuterHolder__lACeh') !== null;
         if (!isSelectorPresent) {
