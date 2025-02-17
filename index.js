@@ -38,18 +38,28 @@ app.get("/scrape", async (req, res) => {
             const page = await browser.newPage();
             await page.goto("https://www.kupujemprodajem.com/bela-tehnika-i-kucni-aparati/ves-masine/pretraga?categoryId=15&groupId=188&locationId=1&priceTo=150&currency=eur&order=posted%20desc", {
                 timeout: 90000,  // Povećaj na 90 sekundi
-                waitUntil: "domcontentloaded",  // Možeš probati i 'networkidle2'
+                waitUntil: "networkidle2",  // Možeš probati i 'networkidle2', domcontentloaded
             });
             const title = await page.title();
 
-            await page.waitForSelector('.AdItem_adOuterHolder__lACeh');
-            const ads = await page.evaluate(() => {
-                return Array.from(document.querySelectorAll('.AdItem_adOuterHolder__lACeh'))
+            await page.waitForTimeout(5000); // Sačekaj malo pre nego što tražiš selektor
+
+        const isSelectorPresent = await page.$('.AdItem_adOuterHolder__lACeh') !== null;
+        if (!isSelectorPresent) {
+            console.log("⚠️ Selektor nije pronađen. Proveri strukturu stranice!");
+            res.status(500).send({ msg: "Selektor nije pronađen.", success: false });
+            return;
+        }
+
+        await page.waitForSelector('.AdItem_adOuterHolder__lACeh', { timeout: 90000 });
+
+        const ads = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('.AdItem_adOuterHolder__lACeh'))
                 .map(ad => ad.id.match(/\d+/)?.[0])
                 .filter(Boolean);
-            });
+        });
 
-            console.log(`🔍 Pronađeno ${ads.length} oglasa.`);
+        console.log(`🔍 Pronađeno ${ads.length} oglasa.`);
 
             console.log("Puppeteer started successfully!");
             res.send({ads});
