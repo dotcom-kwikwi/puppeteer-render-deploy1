@@ -47,9 +47,19 @@ app.get("/scrape", async (req, res) => {
         const isSelectorPresent = await page.$('.AdItem_adOuterHolder__lACeh') !== null;
         if (!isSelectorPresent) {
             console.log("⚠️ Selektor nije pronađen. Proveri strukturu stranice!");
-            res.status(500).send({ msg: "Selektor nije pronađen.", success: false });
+
+            // Preuzmi i ispiši ceo HTML sadržaj stranice
+            const pageContent = await page.content();
+            console.log("📄 HTML sadržaj stranice:\n", pageContent);
+
+            res.status(500).send({
+                msg: "Selektor nije pronađen.",
+                success: false,
+                html: pageContent, // Možeš videti u odgovoru servera
+            });
             return;
         }
+
 
         await page.waitForSelector('.AdItem_adOuterHolder__lACeh', { timeout: 90000 });
 
