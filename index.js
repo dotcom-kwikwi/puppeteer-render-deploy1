@@ -36,14 +36,23 @@ app.get("/scrape", async (req, res) => {
             });
 
             const page = await browser.newPage();
+            
+            page.on('response', async (response) => {
+                console.log(`📡 AJAX Response: ${response.url()}`);
+            });
+            
             await page.goto("https://www.kupujemprodajem.com/bela-tehnika-i-kucni-aparati/ves-masine/pretraga?categoryId=15&groupId=188&locationId=1&priceTo=150&currency=eur&order=posted%20desc", {
                 timeout: 90000,  // Povećaj na 90 sekundi
                 waitUntil: "networkidle2",  // Možeš probati i 'networkidle2', domcontentloaded
             });
-            const title = await page.title();
 
+            console.log("🌍 Stranica učitana. Čekam oglase...");
             
-
+            const title = await page.title();
+            
+            
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            
         const isSelectorPresent = await page.$('.AdItem_adOuterHolder__lACeh') !== null;
         if (!isSelectorPresent) {
             console.log("⚠️ Selektor nije pronađen. Proveri strukturu stranice!");
