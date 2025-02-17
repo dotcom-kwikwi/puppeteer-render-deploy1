@@ -53,10 +53,10 @@ app.get("/scrape", async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        await page.waitForSelector('.AdItem_adCard__gqDfK', { timeout: 30000 });
+        await page.waitForSelector('.AdItem_adOuterHolder__lACeh', { timeout: 30000 });
 
         const firstAdLink = await page.$eval(
-            '.AdItem_adCard__gqDfK a',
+            '.AdItem_adOuterHolder__lACeh a',
             element => element.href
         );
 
