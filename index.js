@@ -25,7 +25,6 @@ app.get("/", async (req, res) => {
 app.get("/scrape", async (req, res) => {
     let browser;
     try {
-        // Pokrećemo Puppeteer sa potrebnim argumentima
         browser = await puppeteer.launch({
             headless: true,
             args: [
@@ -40,30 +39,27 @@ app.get("/scrape", async (req, res) => {
 
         const page = await browser.newPage();
         
-        // Idemo na traženu stranicu
         await page.goto("https://www.kupujemprodajem.com/bela-tehnika-i-kucni-aparati/ves-masine/pretraga?categoryId=15&groupId=188&locationId=1&priceTo=150&currency=eur&order=posted%20desc", {
             waitUntil: "networkidle2",
             timeout: 60000
         });
 
-        // Čekamo cookie dialog i klikćemo ako postoji
-        await page.waitForTimeout(2000);
+        // Zamenjeno waitForTimeout sa setTimeout
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
         const cookieButton = await page.$('#cookieConsentModal button');
         if (cookieButton) {
             await cookieButton.click();
-            await page.waitForTimeout(1000);
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        // Čekamo da se oglasi učitaju
         await page.waitForSelector('.AdItem_adCard__gqDfK', { timeout: 30000 });
 
-        // Uzimamo prvi oglas
         const firstAdLink = await page.$eval(
             '.AdItem_adCard__gqDfK a',
             element => element.href
         );
 
-        // Ispisujemo link u konzolu
         console.log("Pronađen link prvog oglasa:", firstAdLink);
 
         res.send({
