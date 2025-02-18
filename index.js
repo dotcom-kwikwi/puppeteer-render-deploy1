@@ -32,23 +32,11 @@ app.get("/scrape", async (req, res) => {
         const url = "https://www.polovniautomobili.com/motori/pretraga?price_to=700&engine_volume_from=125&sort=1&type%5B0%5D=scooter&without_price=1&showOldNew=both&details=1";
         await page.goto(url, { waitUntil: "domcontentloaded" });
 
-        // Take a screenshot before scraping
+        // Take a screenshot
         await page.screenshot({ path: "screenshot.png", fullPage: true });
+        console.log("Screenshot taken: screenshot.png");
 
-        // Extracting the first ad's ID
-        const adId = await page.evaluate(() => {
-            const firstAd = document.querySelector("article.classified");
-            return firstAd ? firstAd.dataset.id : null;
-        });
-
-        if (!adId) {
-            throw new Error("No ad found on the page.");
-        }
-
-        const adLink = `https://www.polovniautomobili.com/auto-oglasi/${adId}/auto?attp=p0_pv0_pc0_pl1_plv0&show_date=true`;
-        console.log("Ad Link:", adLink);
-
-        res.send({ adId, adLink, screenshot: "screenshot.png", success: true });
+        res.send({ screenshot: "screenshot.png", success: true });
     } catch (error) {
         console.error("Error scraping the website:", error);
         res.status(500).send({
@@ -67,3 +55,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
+
