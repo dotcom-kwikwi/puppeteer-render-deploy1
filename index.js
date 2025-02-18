@@ -1,24 +1,3 @@
-import express from "express";
-import puppeteer from "puppeteer";
-import * as dotenv from "dotenv";
-dotenv.config();
-
-const app = express();
-
-app.get("/", async (req, res) => {
-    try {
-        console.log("Server UP!", {request: req});
-        res.send({ msg: "Server is running.", success: true, status_code: 200 });
-    } catch (error) {
-        console.error("Error running the script:", error);
-        res.status(500).send({
-            msg: "Error running the script. Check the logs for more details.",
-            success: false,
-            status_code: 500
-        });
-    }
-});
-
 app.get("/scrape", async (req, res) => {
     let browser;
     try {
@@ -31,6 +10,9 @@ app.get("/scrape", async (req, res) => {
         const page = await browser.newPage();
         const url = "https://www.polovniautomobili.com/motori/pretraga?price_to=700&engine_volume_from=125&sort=1&type%5B0%5D=scooter&without_price=1&showOldNew=both&details=1";
         await page.goto(url, { waitUntil: "domcontentloaded" });
+
+        // Take a screenshot before scraping
+        await page.screenshot({ path: "screenshot.png", fullPage: true });
 
         // Extracting the first ad's ID
         const adId = await page.evaluate(() => {
@@ -45,7 +27,7 @@ app.get("/scrape", async (req, res) => {
         const adLink = `https://www.polovniautomobili.com/auto-oglasi/${adId}/auto?attp=p0_pv0_pc0_pl1_plv0&show_date=true`;
         console.log("Ad Link:", adLink);
 
-        res.send({ adId, adLink, success: true });
+        res.send({ adId, adLink, screenshot: "screenshot.png", success: true });
     } catch (error) {
         console.error("Error scraping the website:", error);
         res.status(500).send({
