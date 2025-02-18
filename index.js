@@ -5,9 +5,18 @@ dotenv.config();
 
 const app = express();
 
-app.get("/", (req, res) => {
-    console.log("Server UP!", { request: req });
-    res.send({ msg: "Server is running.", success: true, status_code: 200 });
+app.get("/", async (req, res) => {
+    try {
+        console.log("Server UP!", {request: req});
+        res.send({ msg: "Server is running.", success: true, status_code: 200 });
+    } catch (error) {
+        console.error("Error running the script:", error);
+        res.status(500).send({
+            msg: "Error running the script. Check the logs for more details.",
+            success: false,
+            status_code: 500
+        });
+    }
 });
 
 app.get("/scrape", async (req, res) => {
