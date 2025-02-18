@@ -1,9 +1,12 @@
 import express from "express";
 import puppeteer from "puppeteer";
 import * as dotenv from "dotenv";
+import path from "path";
 dotenv.config();
 
 const app = express();
+
+app.use(express.static("public"));
 
 app.get("/", async (req, res) => {
     try {
@@ -19,6 +22,7 @@ app.get("/", async (req, res) => {
     }
 });
 
+
 app.get("/scrape", async (req, res) => {
     let browser;
     try {
@@ -32,11 +36,12 @@ app.get("/scrape", async (req, res) => {
         const url = "https://www.polovniautomobili.com/motori/pretraga?price_to=700&engine_volume_from=125&sort=1&type%5B0%5D=scooter&without_price=1&showOldNew=both&details=1";
         await page.goto(url, { waitUntil: "domcontentloaded" });
 
-        // Take a screenshot
-        await page.screenshot({ path: "screenshot.png", fullPage: true });
-        console.log("Screenshot taken: screenshot.png");
+        // Take a screenshot and save it in the public folder
+        const screenshotPath = path.join("public", "screenshot.png");
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log("Screenshot taken:", screenshotPath);
 
-        res.send({ screenshot: "screenshot.png", success: true });
+        res.send({ screenshot_url: "/screenshot.png", success: true });
     } catch (error) {
         console.error("Error scraping the website:", error);
         res.status(500).send({
@@ -55,4 +60,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
-
