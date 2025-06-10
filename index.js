@@ -1,34 +1,90 @@
 import express from "express";
 import puppeteer from "puppeteer";
 import * as dotenv from "dotenv";
-import path from "path";
 dotenv.config();
 
 const app = express();
 
-app.use(express.static("public"));
+// Middleware pour parser le JSON
+app.use(express.json());
 
-app.get("/", async (req, res) => {
+// Route de test
+app.get("/", (req, res) => {
+    res.json({
+        message: "Puppeteer API is running",
+        endpoints: {
+            google: "/google-title - GET - Récupère le titre de Google",
+            scrape: "/scrape - GET - Exemple de scraping existant"
+        }
+    });
+});
+
+// Nouvelle route pour récupérer le titre de Google
+app.get("/google-title", async (req, res) => {
+    let browser;
     try {
-        console.log("Server UP!", {request: req});
-        res.send({ msg: "Server is running.", success: true, status_code: 200 });
-    } catch (error) {
-        console.error("Error running the script:", error);
-        res.status(500).send({
-            msg: "Error running the script. Check the logs for more details.",
-            success: false,
-            status_code: 500
+        console.log("Launching Puppeteer to fetch Google title...");
+        
+        // Configuration de Puppeteer pour Render.com
+        browser = await puppeteer.launch({
+            args: [
+                "--disable-setuid-sandbox",
+                "--no-sandbox",
+                "--single-process",
+                "--no-zygote",
+                "--disable-dev-shm-usage" // Important pour éviter les problèmes de mémoire
+            ],
+            executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
+            headless: "new", // Mode headless plus récent
+            timeout: 30000
         });
+
+        const page = await browser.newPage();
+        
+        // Configuration de la page pour améliorer les performances
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 720 });
+        
+        console.log("Navigating to Google...");
+        await page.goto("https://www.google.com", {
+            waitUntil: "networkidle2",
+            timeout: 30000
+        });
+
+        // Récupération du titre
+        const title = await page.title();
+        console.log("Google title:", title);
+
+        res.json({
+            success: true,
+            title: title,
+            url: "https://www.google.com"
+        });
+
+    } catch (error) {
+        console.error("Error fetching Google title:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+        });
+    } finally {
+        if (browser) {
+            await browser.close();
+            console.log("Browser closed");
+        }
     }
 });
 
-
+// Route existante pour le scraping (conservée)
 app.get("/scrape", async (req, res) => {
     let browser;
     try {
         console.log("Starting Puppeteer...");
         browser = await puppeteer.launch({
-            args: ["--disable-setuid-sandbox", "--no-sandbox", "--single-process", "--no-zygote"],
+            args: ["--disable-setuid-sandbox", "--no-sandbox", "--single-process", "--no-zygote", "--disable-dev-shm-usage"],
+            executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
+            headless: "new",
             timeout: 60000,
         });
 
@@ -36,18 +92,15 @@ app.get("/scrape", async (req, res) => {
         const url = "https://www.polovniautomobili.com/motori/pretraga?price_to=700&engine_volume_from=125&sort=1&type%5B0%5D=scooter&without_price=1&showOldNew=both&details=1";
         await page.goto(url, { waitUntil: "domcontentloaded" });
 
-        // Take a screenshot and save it in the public folder
-        const screenshotPath = path.join("public", "screenshot.png");
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log("Screenshot taken:", screenshotPath);
-
-        res.send({ screenshot_url: "/screenshot.png", success: true });
+        res.json({ 
+            success: true,
+            message: "Scraping completed successfully"
+        });
     } catch (error) {
         console.error("Error scraping the website:", error);
-        res.status(500).send({
-            msg: "Error scraping the website. Check the logs for more details.",
+        res.status(500).json({
             success: false,
-            error: error.toString(),
+            error: error.message
         });
     } finally {
         if (browser) {
