@@ -177,8 +177,38 @@ async function solveSudokuProcess() {
         // Initialisation de l'onglet de résolution
         console.log("Initialisation de l'onglet de résolution...");
         solverPage = await currentBrowser.newPage();
-        await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { waitUntil: "networkidle2" });
-        await sleep(3000);
+        
+        // Tentative de connexion au solveur avec plusieurs essais
+        let solverConnected = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                console.log(`Tentative ${attempt}/3 de connexion à sudokuspoiler.com...`);
+                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                    waitUntil: "domcontentloaded", 
+                    timeout: 60000 
+                });
+                await sleep(3000);
+                
+                // Vérifier que la page s'est bien chargée
+                const hasGrid = await solverPage.$('#grid');
+                if (hasGrid) {
+                    console.log("✅ Solveur connecté avec succès!");
+                    solverConnected = true;
+                    break;
+                } else {
+                    console.log(`❌ Tentative ${attempt} échouée - grille non trouvée`);
+                }
+            } catch (error) {
+                console.log(`❌ Tentative ${attempt} échouée: ${error.message}`);
+                if (attempt < 3) {
+                    await sleep(5000);
+                }
+            }
+        }
+        
+        if (!solverConnected) {
+            throw new Error("Impossible de se connecter au solveur après 3 tentatives");
+        }
 
         let roundNumber = 1;
         const maxRetries = 3;
@@ -215,8 +245,37 @@ async function solveSudokuProcess() {
 
                 // Réinitialisation de l'onglet de résolution
                 solverPage = await currentBrowser.newPage();
-                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { waitUntil: "networkidle2" });
-                await sleep(5000);
+                
+                // Tentative de reconnexion au solveur
+                let reconnected = false;
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        console.log(`Reconnexion solveur ${attempt}/3...`);
+                        await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                            waitUntil: "domcontentloaded", 
+                            timeout: 60000 
+                        });
+                        await sleep(3000);
+                        
+                        const hasGrid = await solverPage.$('#grid');
+                        if (hasGrid) {
+                            reconnected = true;
+                            break;
+                        }
+                    } catch (error) {
+                        console.log(`Erreur reconnexion ${attempt}: ${error.message}`);
+                        if (attempt < 3) {
+                            await sleep(5000);
+                        }
+                    }
+                }
+                
+                if (!reconnected) {
+                    console.log("❌ Échec reconnexion solveur - nouvelle réinitialisation");
+                    continue;
+                }
+                
+                await sleep(2000);
             }
         }
     } catch (error) {
@@ -350,35 +409,61 @@ async function solveOneSudoku(roundNumber) {
         console.log("\nÉtape 2: Résolution sur sudokuspoiler.com");
         await solverPage.bringToFront();
         
-        // Fermer les pubs
-        await closeAdsOnSpoiler();
-        
-        // Réinitialisation du solveur
-        console.log("Réinitialisation du solveur...");
-        await solverPage.click("#resetButton");
-        await sleep(1000);
-        
-        // Saisie de la grille
-        console.log("Saisie de la grille...");
-        const inputs = await solverPage.$$("#grid input");
-        for (let i = 0; i < Math.min(inputs.length, 81); i++) {
-            if (gridValues[i]) {
-                await inputs[i].type(gridValues[i]);
-                await sleep(100);
+        try {
+            // Vérifier que la page du solveur est encore accessible
+            const currentUrl = solverPage.url();
+            if (!currentUrl.includes('sudokuspoiler.com')) {
+                console.log("⚠ Page solveur perdue, rechargement...");
+                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                    waitUntil: "domcontentloaded", 
+                    timeout: 60000 
+                });
+                await sleep(3000);
             }
-        }
-        
-        // Résolution
-        console.log("Résolution en cours...");
-        await solverPage.click("#solveButton");
-        await sleep(3000);
-        
-        // Récupération de la solution
-        const solvedInputs = await solverPage.$$("#grid input");
-        const solvedValues = [];
-        for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
-            const value = await solvedInputs[i].evaluate(el => el.value);
-            solvedValues.push(value);
+            
+            // Fermer les pubs
+            await closeAdsOnSpoiler();
+            
+            // Réinitialisation du solveur
+            console.log("Réinitialisation du solveur...");
+            await solverPage.waitForSelector("#resetButton", { timeout: 30000 });
+            await solverPage.click("#resetButton");
+            await sleep(1000);
+            
+            // Saisie de la grille
+            console.log("Saisie de la grille...");
+            await solverPage.waitForSelector("#grid input", { timeout: 30000 });
+            const inputs = await solverPage.$("#grid input");
+            
+            if (inputs.length < 81) {
+                throw new Error(`Grille incomplète: ${inputs.length} cases trouvées au lieu de 81`);
+            }
+            
+            for (let i = 0; i < Math.min(inputs.length, 81); i++) {
+                if (gridValues[i]) {
+                    await inputs[i].type(gridValues[i]);
+                    await sleep(50);
+                }
+            }
+            
+            // Résolution
+            console.log("Résolution en cours...");
+            await solverPage.click("#solveButton");
+            await sleep(4000);
+            
+            // Récupération de la solution
+            const solvedInputs = await solverPage.$("#grid input");
+            const solvedValues = [];
+            for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
+                const value = await solvedInputs[i].evaluate(el => el.value);
+                solvedValues.push(value);
+            }
+            
+            console.log(`✅ Solution obtenue: ${solvedValues.filter(v => v).length}/81 cases`);
+            
+        } catch (error) {
+            console.error(`❌ Erreur sur le solveur: ${error.message}`);
+            return false;
         }
         
         // Étape 3: Retour au premier onglet
