@@ -1,188 +1,237 @@
-import puppeteer from 'puppeteer';
-import readline from 'readline';
+import express from "express";
+import puppeteer from "puppeteer";
+import * as dotenv from "dotenv";
+dotenv.config();
 
-// Configuration de readline pour l'interaction utilisateur
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
+const app = express();
+app.use(express.json());
+
+// Variables globales pour gérer la session
+let currentBrowser = null;
+let currentPage = null;
+let solverPage = null;
+let waitingForPhone = false;
+let waitingForOTP = false;
+let phoneNumber = '';
+let otpCode = '';
+let isProcessing = false;
+
+// Route principale
+app.get("/", (req, res) => {
+    res.json({
+        message: "Sudoku Solver API is running",
+        endpoints: {
+            start: "/start-sudoku - POST - Démarre le processus de résolution",
+            phone: "/submit-phone - POST - Soumet le numéro de téléphone",
+            otp: "/submit-otp - POST - Soumet le code OTP",
+            status: "/status - GET - Vérifie le statut du processus"
+        }
+    });
 });
 
-// Fonction pour poser une question à l'utilisateur
-const askQuestion = (question) => new Promise(resolve => rl.question(question, resolve));
-
-// Gestionnaire de signal pour l'arrêt propre
-process.on('SIGINT', async () => {
-    console.log('\n🛑 Arrêt par utilisateur');
-    if (browser) await browser.close();
-    rl.close();
-    process.exit(0);
+// Route de statut
+app.get("/status", (req, res) => {
+    res.json({
+        isProcessing,
+        waitingForPhone,
+        waitingForOTP,
+        hasBrowser: !!currentBrowser,
+        hasPage: !!currentPage
+    });
 });
 
-let browser;
-
-async function waitForPageLoad(page, timeout = 30000) {
-    try {
-        await page.waitForFunction('document.readyState === "complete"', { timeout });
-        await page.waitForTimeout(2000);
-        return true;
-    } catch (error) {
-        console.log("⚠ Le chargement de la page a pris trop de temps");
-        return false;
+// Route pour démarrer le processus
+app.post("/start-sudoku", async (req, res) => {
+    if (isProcessing) {
+        return res.status(400).json({
+            success: false,
+            error: "Le processus est déjà en cours"
+        });
     }
-}
 
-async function ensureTabExists(page, tabIndex, url = null) {
     try {
-        const pages = await browser.pages();
-        if (pages.length <= tabIndex) {
-            const newPage = await browser.newPage();
-            await newPage.bringToFront();
-            await page.waitForTimeout(1000);
+        isProcessing = true;
+        console.log("🚀 Démarrage du solveur Sudoku...");
+        
+        // Lancement du processus en arrière-plan
+        solveSudokuProcess().catch(error => {
+            console.error("Erreur dans le processus:", error);
+            isProcessing = false;
+        });
+
+        res.json({
+            success: true,
+            message: "Processus de résolution démarré"
+        });
+    } catch (error) {
+        isProcessing = false;
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Route pour soumettre le numéro de téléphone
+app.post("/submit-phone", async (req, res) => {
+    const { phone } = req.body;
+    
+    if (!waitingForPhone) {
+        return res.status(400).json({
+            success: false,
+            error: "Aucune demande de numéro en cours"
+        });
+    }
+
+    if (!phone) {
+        return res.status(400).json({
+            success: false,
+            error: "Numéro de téléphone requis"
+        });
+    }
+
+    try {
+        phoneNumber = phone;
+        waitingForPhone = false;
+        
+        res.json({
+            success: true,
+            message: "Numéro de téléphone reçu"
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Route pour soumettre l'OTP
+app.post("/submit-otp", async (req, res) => {
+    const { otp } = req.body;
+    
+    if (!waitingForOTP) {
+        return res.status(400).json({
+            success: false,
+            error: "Aucune demande d'OTP en cours"
+        });
+    }
+
+    if (!otp) {
+        return res.status(400).json({
+            success: false,
+            error: "Code OTP requis"
+        });
+    }
+
+    try {
+        otpCode = otp;
+        waitingForOTP = false;
+        
+        res.json({
+            success: true,
+            message: "Code OTP reçu"
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Fonction principale de résolution
+async function solveSudokuProcess() {
+    try {
+        console.log("=== Démarrage du solveur Sudoku ===");
+        
+        // Initialisation du navigateur
+        currentBrowser = await puppeteer.launch({
+            args: [
+                "--disable-setuid-sandbox",
+                "--no-sandbox",
+                "--single-process",
+                "--no-zygote",
+                "--disable-dev-shm-usage"
+            ],
+            executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
+            headless: "new",
+            timeout: 60000
+        });
+
+        currentPage = await currentBrowser.newPage();
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await currentPage.setViewport({ width: 1280, height: 720 });
+
+        // Gestion de la connexion avec réessai
+        let loginSuccess = false;
+        while (!loginSuccess) {
+            loginSuccess = await handleLogin();
+            if (!loginSuccess) {
+                console.log("Nouvelle tentative de connexion dans 10 secondes...");
+                await sleep(10000);
+                await currentPage.reload();
+            }
         }
 
-        const targetPage = (await browser.pages())[tabIndex];
-        await targetPage.bringToFront();
+        // Initialisation de l'onglet de résolution
+        console.log("Initialisation de l'onglet de résolution...");
+        solverPage = await currentBrowser.newPage();
+        await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { waitUntil: "networkidle2" });
+        await sleep(3000);
 
-        if (url) {
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                url = 'https://' + url;
-            }
-            const currentUrl = await targetPage.url();
-            if (currentUrl !== url) {
-                await targetPage.goto(url, { waitUntil: 'domcontentloaded' });
-                if (!(await waitForPageLoad(targetPage))) {
-                    return null;
+        let roundNumber = 1;
+        const maxRetries = 3;
+
+        while (true) {
+            let retries = 0;
+            let success = false;
+
+            while (!success && retries < maxRetries) {
+                success = await solveOneSudoku(roundNumber);
+                if (!success) {
+                    retries++;
+                    console.log(`🔄 Tentative ${retries}/${maxRetries}`);
+                    await sleep(2000);
                 }
             }
-        }
-        return targetPage;
-    } catch (error) {
-        console.log(`Erreur gestion onglet: ${error.message.slice(0, 100)}`);
-        return null;
-    }
-}
 
-async function closeAdsOnSpoiler(page) {
-    const closeSelectors = [
-        'div[id="dismiss-button"]',
-        'div.close-button',
-        'button[aria-label="Close ad"]',
-        'div[aria-label="Close ad"]'
-    ];
-
-    for (const selector of closeSelectors) {
-        try {
-            const elements = await page.$$(selector);
-            for (const el of elements) {
-                if (await el.isVisible()) {
-                    await el.click();
-                    await page.waitForTimeout(1000);
-                    return true;
-                }
-            }
-        } catch (error) {
-            continue;
-        }
-    }
-    return false;
-}
-
-async function persistentClick(page, selector, description, maxAttempts = 3) {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-            const element = await page.waitForSelector(selector, { visible: true, timeout: 10000 });
-            await element.evaluate(el => el.scrollIntoView({ block: 'center' }));
-            await element.click();
-            await page.waitForTimeout(500);
-            return true;
-        } catch (error) {
-            if (attempt === maxAttempts - 1) {
-                console.log(`Échec clic sur ${description}`);
-            }
-            await page.waitForTimeout(1000);
-        }
-    }
-    return false;
-}
-
-async function getSudokuGrid(page) {
-    try {
-        const gridSelector = 'div.grid.grid-cols-9.gap-0.border-4.border-black';
-        await page.waitForSelector(gridSelector, { visible: true, timeout: 10000 });
-        
-        const cells = await page.$$eval(`${gridSelector} div.w-10.h-10`, divs => 
-            divs.map(div => div.textContent.trim())
-        );
-        
-        if (cells.length !== 81) {
-            throw new Error('Grille incomplète');
-        }
-
-        await page.waitForSelector('div.flex.gap-2.mt-4 button', { visible: true });
-        return cells;
-    } catch (error) {
-        console.log(`Erreur récupération grille: ${error.message.slice(0, 100)}`);
-        return null;
-    }
-}
-
-async function fillSolution(page, solvedValues) {
-    try {
-        const gridSelector = 'div.grid.grid-cols-9.gap-0.border-4.border-black';
-        await page.waitForSelector(gridSelector, { visible: true });
-
-        const cells = await page.$$(`${gridSelector} div.w-10.h-10`);
-        const numberButtons = await page.$$('div.flex.gap-2.mt-4 button');
-
-        for (let i = 0; i < cells.length; i++) {
-            const cell = cells[i];
-            const targetValue = solvedValues[i];
-            
-            const currentValue = await cell.evaluate(el => el.textContent.trim());
-            
-            if (currentValue === targetValue) continue;
-            
-            if (!currentValue && targetValue) {
-                for (let attempt = 0; attempt < 3; attempt++) {
-                    try {
-                        const currentValue = await cell.evaluate(el => el.textContent.trim());
-                        if (currentValue === targetValue) break;
-                        
-                        if (!currentValue) {
-                            await cell.click();
-                            await page.waitForTimeout(300);
-                            
-                            const classList = await cell.evaluate(el => el.className);
-                            if (classList.includes('bg-blue-200')) {
-                                const btn = numberButtons[parseInt(targetValue) - 1];
-                                await btn.click();
-                                await page.waitForTimeout(500);
-                                
-                                const newValue = await cell.evaluate(el => el.textContent.trim());
-                                if (newValue === targetValue) break;
-                                else {
-                                    console.log(`⚠ Réessai case ${i} (valeur non prise)`);
-                                    await page.waitForTimeout(1000);
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.log(`Erreur case ${i}: ${error.message.slice(0, 50)}`);
-                        await page.waitForTimeout(1000);
-                        continue;
+            if (success) {
+                roundNumber++;
+            } else {
+                console.log("🔁 Réinitialisation complète");
+                await resetBrowser();
+                
+                // Reconnexion après réinitialisation
+                let reconnectSuccess = false;
+                while (!reconnectSuccess) {
+                    reconnectSuccess = await handleLogin();
+                    if (!reconnectSuccess) {
+                        console.log("Nouvelle tentative de connexion dans 10 secondes...");
+                        await sleep(10000);
+                        await currentPage.reload();
                     }
                 }
+
+                // Réinitialisation de l'onglet de résolution
+                solverPage = await currentBrowser.newPage();
+                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { waitUntil: "networkidle2" });
+                await sleep(5000);
             }
         }
-        return true;
     } catch (error) {
-        console.log(`Erreur remplissage: ${error.message.slice(0, 100)}`);
-        return false;
+        console.error('❌ Erreur:', error);
+    } finally {
+        if (currentBrowser) {
+            await currentBrowser.close();
+        }
+        isProcessing = false;
+        console.log('👋 Processus terminé');
     }
 }
 
-async function handleLogin(page) {
-    const maxAttempts = 3;
+// Fonction de gestion de la connexion
+async function handleLogin(maxAttempts = 3) {
     let attempt = 0;
     
     while (attempt < maxAttempts) {
@@ -190,92 +239,88 @@ async function handleLogin(page) {
             console.log(`\nTentative de connexion ${attempt + 1}/${maxAttempts}`);
             
             // Aller directement à la page de jeu
-            await page.goto('https://sudoku.lumitelburundi.com/game', { waitUntil: 'domcontentloaded' });
-            await page.waitForTimeout(2000);
+            await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2" });
+            await sleep(2000);
             
             // Vérifier si on est redirigé vers la page de login
-            if (!page.url().includes('https://sudoku.lumitelburundi.com/game')) {
-                console.log('Redirection détectée, démarrage du processus de connexion...');
+            if (!currentPage.url().includes("https://sudoku.lumitelburundi.com/game")) {
+                console.log("Redirection détectée, démarrage du processus de connexion...");
                 
                 // Étape 1: Cliquer sur le bouton Kwinjira
-                console.log('Étape 1: Clique sur le bouton Kwinjira');
-                const kwinjiraBtn = await page.waitForSelector(
-                    'button.w-53.py-3.px-6.bg-gradient-to-r.from-amber-400.to-amber-500.text-white.text-lg.font-bold.rounded-full.shadow-lg.mt-36',
-                    { visible: true, timeout: 10000 }
-                );
-                await kwinjiraBtn.click();
-                await page.waitForTimeout(2000);
+                console.log("Étape 1: Clique sur le bouton Kwinjira");
+                await currentPage.waitForSelector("button.w-53.py-3.px-6.bg-gradient-to-r.from-amber-400.to-amber-500.text-white.text-lg.font-bold.rounded-full.shadow-lg.mt-36", { timeout: 30000 });
+                await currentPage.click("button.w-53.py-3.px-6.bg-gradient-to-r.from-amber-400.to-amber-500.text-white.text-lg.font-bold.rounded-full.shadow-lg.mt-36");
+                await sleep(2000);
                 
                 // Attendre la redirection vers la page de login
-                await page.waitForFunction(() => window.location.href.includes('/login'));
+                await currentPage.waitForFunction(() => window.location.href.includes("/login"));
                 
                 // Étape 2: Saisie du numéro de téléphone
-                console.log('Étape 2: Saisie du numéro de téléphone');
-                const phoneInput = await page.waitForSelector(
-                    'input[placeholder="Nimushiremwo inomero ya terefone"]',
-                    { visible: true, timeout: 10000 }
-                );
+                console.log("Étape 2: Demande du numéro de téléphone");
+                await currentPage.waitForSelector("input[placeholder='Nimushiremwo inomero ya terefone']", { timeout: 30000 });
                 
-                // Demander le numéro à l'utilisateur
-                const phoneNumber = await askQuestion('Entrez votre numéro de téléphone: ');
-                await phoneInput.click({ clickCount: 3 });
-                await phoneInput.type(phoneNumber);
-                await page.waitForTimeout(1000);
+                // Demander le numéro à l'utilisateur via l'API
+                waitingForPhone = true;
+                phoneNumber = '';
+                console.log("📱 En attente du numéro de téléphone via l'API...");
+                
+                while (waitingForPhone || !phoneNumber) {
+                    await sleep(1000);
+                }
+                
+                await currentPage.type("input[placeholder='Nimushiremwo inomero ya terefone']", phoneNumber);
+                await sleep(1000);
                 
                 // Cliquer sur le bouton Rungika OTP
-                const otpBtn = await page.waitForSelector(
-                    'button.w-full.py-2.bg-red-700.text-white.rounded-md.font-semibold.hover\\:bg-red-600.transition.duration-200',
-                    { visible: true, timeout: 10000 }
-                );
-                await otpBtn.click();
-                await page.waitForTimeout(2000);
+                await currentPage.click("button.w-full.py-2.bg-red-700.text-white.rounded-md.font-semibold.hover\\:bg-red-600.transition.duration-200");
+                await sleep(2000);
                 
                 // Étape 3: Saisie du code OTP
-                console.log('Étape 3: Saisie du code OTP');
-                const otpInput = await page.waitForSelector(
-                    'input[placeholder="OTP"]',
-                    { visible: true, timeout: 10000 }
-                );
+                console.log("Étape 3: Demande du code OTP");
+                await currentPage.waitForSelector("input[placeholder='OTP']", { timeout: 30000 });
                 
-                // Demander le code OTP à l'utilisateur
-                const otpCode = await askQuestion('Entrez le code OTP reçu: ');
-                await otpInput.click({ clickCount: 3 });
-                await otpInput.type(otpCode);
-                await page.waitForTimeout(1000);
+                // Demander le code OTP à l'utilisateur via l'API
+                waitingForOTP = true;
+                otpCode = '';
+                console.log("🔐 En attente du code OTP via l'API...");
+                
+                while (waitingForOTP || !otpCode) {
+                    await sleep(1000);
+                }
+                
+                await currentPage.type("input[placeholder='OTP']", otpCode);
+                await sleep(1000);
                 
                 // Cliquer sur le bouton Emeza
-                const emezaBtn = await page.waitForSelector(
-                    'button.w-full.py-2.bg-red-700.text-white.rounded-md.font-semibold.hover\\:bg-red-800.transition.duration-200',
-                    { visible: true, timeout: 10000 }
-                );
-                await emezaBtn.click();
+                await currentPage.click("button.w-full.py-2.bg-red-700.text-white.rounded-md.font-semibold.hover\\:bg-red-800.transition.duration-200");
                 
                 // Attendre 10 secondes comme demandé
-                console.log('Attente de 10 secondes...');
-                await page.waitForTimeout(10000);
+                console.log("Attente de 10 secondes...");
+                await sleep(10000);
                 
                 // Maintenant, aller manuellement à la page de jeu
-                console.log('Navigation vers la page de jeu...');
-                await page.goto('https://sudoku.lumitelburundi.com/game', { waitUntil: 'domcontentloaded' });
-                await page.waitForTimeout(3000);
+                console.log("Navigation vers la page de jeu...");
+                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2" });
+                await sleep(3000);
                 
                 // Vérifier si on est toujours redirigé
-                if (!page.url().includes('https://sudoku.lumitelburundi.com/game')) {
-                    console.log('La connexion a échoué, nouvelle tentative...');
+                if (!currentPage.url().includes("https://sudoku.lumitelburundi.com/game")) {
+                    console.log("La connexion a échoué, nouvelle tentative...");
                     attempt++;
                     continue;
                 } else {
-                    console.log('Connexion réussie!');
+                    console.log("Connexion réussie!");
                     return true;
                 }
             } else {
-                console.log('Déjà connecté, poursuite du script...');
+                console.log("Déjà connecté, poursuite du script...");
                 return true;
             }
+            
         } catch (error) {
             console.log(`Erreur lors de la tentative de connexion: ${error.message}`);
             attempt++;
-            await page.waitForTimeout(5000);
+            await sleep(5000);
             continue;
         }
     }
@@ -284,196 +329,256 @@ async function handleLogin(page) {
     return false;
 }
 
-async function solveOneSudoku(mainPage, spoilerPage, roundNumber) {
+// Fonction pour résoudre un Sudoku
+async function solveOneSudoku(roundNumber) {
     console.log(`\n${'='.repeat(50)}`);
     console.log(`🎯 ROUND ${roundNumber}`);
     console.log(`${'='.repeat(50)}`);
     
-    // Étape 1: Récupération sur le premier onglet
-    console.log('Étape 1: Chargement de la grille sur sudoku.lumitelburundi.com');
-    await mainPage.bringToFront();
-    await mainPage.goto('https://sudoku.lumitelburundi.com/game', { waitUntil: 'domcontentloaded' });
-    
-    console.log('Récupération de la grille...');
-    const gridValues = await getSudokuGrid(mainPage);
-    if (!gridValues) return false;
-    
-    // Étape 2: Résolution sur le deuxième onglet
-    console.log('\nÉtape 2: Résolution sur sudokuspoiler.com');
-    await spoilerPage.bringToFront();
-    await spoilerPage.goto('https://sudokuspoiler.com/sudoku/sudoku9', { waitUntil: 'domcontentloaded' });
-    
     try {
-        console.log('Fermeture des pubs...');
-        await closeAdsOnSpoiler(spoilerPage);
+        // Étape 1: Récupération de la grille
+        console.log("Étape 1: Chargement de la grille sur sudoku.lumitelburundi.com");
+        await currentPage.bringToFront();
         
-        console.log('Réinitialisation du solveur...');
-        if (!(await persistentClick(spoilerPage, '#resetButton', 'Reset'))) {
+        console.log("Récupération de la grille...");
+        const gridValues = await getSudokuGrid();
+        if (!gridValues) {
             return false;
         }
-            
-        console.log('Saisie de la grille...');
-        const inputs = await spoilerPage.$$('#grid input');
-        for (let i = 0; i < inputs.length && i < 81; i++) {
+        
+        // Étape 2: Résolution sur le deuxième onglet
+        console.log("\nÉtape 2: Résolution sur sudokuspoiler.com");
+        await solverPage.bringToFront();
+        
+        // Fermer les pubs
+        await closeAdsOnSpoiler();
+        
+        // Réinitialisation du solveur
+        console.log("Réinitialisation du solveur...");
+        await solverPage.click("#resetButton");
+        await sleep(1000);
+        
+        // Saisie de la grille
+        console.log("Saisie de la grille...");
+        const inputs = await solverPage.$$("#grid input");
+        for (let i = 0; i < Math.min(inputs.length, 81); i++) {
             if (gridValues[i]) {
                 await inputs[i].type(gridValues[i]);
-                await spoilerPage.waitForTimeout(100);
+                await sleep(100);
             }
         }
         
-        console.log('Résolution en cours...');
-        if (!(await persistentClick(spoilerPage, '#solveButton', 'Solve'))) {
-            return false;
+        // Résolution
+        console.log("Résolution en cours...");
+        await solverPage.click("#solveButton");
+        await sleep(3000);
+        
+        // Récupération de la solution
+        const solvedInputs = await solverPage.$$("#grid input");
+        const solvedValues = [];
+        for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
+            const value = await solvedInputs[i].evaluate(el => el.value);
+            solvedValues.push(value);
         }
-            
-        await spoilerPage.waitForTimeout(3000);
-        const solvedValues = await spoilerPage.$$eval('#grid input', inputs => 
-            inputs.slice(0, 81).map(input => input.value)
-        );
         
         // Étape 3: Retour au premier onglet
-        console.log('\nÉtape 3: Retour à l\'application principale');
-        await mainPage.bringToFront();
+        console.log("\nÉtape 3: Retour à l'application principale");
+        await currentPage.bringToFront();
         
-        if (!(await getSudokuGrid(mainPage))) {
-            console.log('Rechargement de la page...');
-            await mainPage.reload();
-            await mainPage.waitForTimeout(3000);
-            if (!(await getSudokuGrid(mainPage))) {
+        // Vérifier si la grille est toujours là
+        const stillThere = await getSudokuGrid();
+        if (!stillThere) {
+            console.log("Rechargement de la page...");
+            await currentPage.reload({ waitUntil: "networkidle2" });
+            await sleep(3000);
+            if (!await getSudokuGrid()) {
                 return false;
             }
         }
         
-        console.log('Remplissage de la solution...');
-        if (!(await fillSolution(mainPage, solvedValues))) {
+        // Remplissage de la solution
+        console.log("Remplissage de la solution...");
+        const success = await fillSolution(solvedValues);
+        if (!success) {
             return false;
         }
         
         // Étape 4: Nouveau Sudoku
+        console.log("\nÉtape 4: Chargement d'un nouveau Sudoku");
         try {
-            console.log('\nÉtape 4: Chargement d\'un nouveau Sudoku');
-            const newGameBtn = 'button.py-2.px-4.bg-red-800.text-white.rounded-full.ml-5';
-            if (await persistentClick(mainPage, newGameBtn, 'Nouveau Sudoku')) {
-                await mainPage.waitForTimeout(4000);
-                console.log('Nouvelle grille chargée avec succès!');
-                return true;
-            }
+            await currentPage.click("button.py-2.px-4.bg-red-800.text-white.rounded-full.ml-5");
+            await sleep(4000);
+            console.log("Nouvelle grille chargée avec succès!");
+            return true;
         } catch (error) {
-            console.log('Échec du chargement d\'une nouvelle grille');
+            console.log("Échec du chargement d'une nouvelle grille");
             return false;
         }
+        
     } catch (error) {
-        console.log(`Échec lors de la résolution: ${error.message}`);
+        console.error(`Erreur dans la résolution: ${error.message}`);
         return false;
     }
+}
+
+// Fonction pour récupérer la grille Sudoku
+async function getSudokuGrid() {
+    try {
+        await currentPage.waitForSelector("div.grid.grid-cols-9.gap-0.border-4.border-black", { timeout: 30000 });
+        
+        const gridValues = await currentPage.evaluate(() => {
+            const cells = document.querySelectorAll("div.grid.grid-cols-9.gap-0.border-4.border-black div.w-10.h-10");
+            return Array.from(cells).map(cell => cell.textContent.trim());
+        });
+        
+        if (gridValues.length === 81) {
+            return gridValues;
+        } else {
+            console.log("Grille incomplète trouvée");
+            return null;
+        }
+    } catch (error) {
+        console.error(`Erreur récupération grille: ${error.message}`);
+        return null;
+    }
+}
+
+// Fonction pour remplir la solution
+async function fillSolution(solvedValues) {
+    try {
+        const cells = await currentPage.$$("div.grid.grid-cols-9.gap-0.border-4.border-black div.w-10.h-10");
+        const numberButtons = await currentPage.$$("div.flex.gap-2.mt-4 button");
+        
+        for (let i = 0; i < Math.min(cells.length, 81); i++) {
+            const currentValue = await cells[i].evaluate(el => el.textContent.trim());
+            const targetValue = solvedValues[i];
+            
+            if (currentValue === targetValue) {
+                continue;
+            }
+            
+            if (!currentValue && targetValue) {
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const currentVal = await cells[i].evaluate(el => el.textContent.trim());
+                        if (currentVal === targetValue) {
+                            break;
+                        }
+                        
+                        if (!currentVal) {
+                            await cells[i].click();
+                            await sleep(300);
+                            
+                            const isSelected = await cells[i].evaluate(el => 
+                                el.className.includes("bg-blue-200")
+                            );
+                            
+                            if (isSelected && numberButtons[parseInt(targetValue) - 1]) {
+                                await numberButtons[parseInt(targetValue) - 1].click();
+                                await sleep(500);
+                                
+                                const newValue = await cells[i].evaluate(el => el.textContent.trim());
+                                if (newValue === targetValue) {
+                                    break;
+                                } else {
+                                    console.log(`⚠ Réessai case ${i} (valeur non prise)`);
+                                    await sleep(1000);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.log(`Erreur case ${i}: ${error.message.substring(0, 50)}`);
+                        await sleep(1000);
+                        continue;
+                    }
+                }
+            }
+        }
+        return true;
+    } catch (error) {
+        console.error(`Erreur remplissage: ${error.message}`);
+        return false;
+    }
+}
+
+// Fonction pour fermer les pubs sur SudokuSpoiler
+async function closeAdsOnSpoiler() {
+    const closeSelectors = [
+        'div[id="dismiss-button"]',
+        'div.close-button',
+        'button[aria-label="Close ad"]',
+        'div[aria-label="Close ad"]'
+    ];
     
+    for (const selector of closeSelectors) {
+        try {
+            const elements = await solverPage.$$(selector);
+            for (const element of elements) {
+                const isDisplayed = await element.evaluate(el => {
+                    const style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden';
+                });
+                if (isDisplayed) {
+                    await element.click();
+                    await sleep(1000);
+                    return true;
+                }
+            }
+        } catch (error) {
+            continue;
+        }
+    }
     return false;
 }
 
-async function main() {
+// Fonction pour réinitialiser le navigateur
+async function resetBrowser() {
     try {
-        console.log('=== Démarrage du solveur Sudoku ===');
-        browser = await puppeteer.launch({
-            headless: false, // Mettre à true pour la production
+        if (currentBrowser) {
+            await currentBrowser.close();
+        }
+        
+        currentBrowser = await puppeteer.launch({
             args: [
-                '--disable-setuid-sandbox',
-                '--no-sandbox',
-                '--single-process',
-                '--no-zygote',
-                '--disable-dev-shm-usage'
+                "--disable-setuid-sandbox",
+                "--no-sandbox",
+                "--single-process",
+                "--no-zygote",
+                "--disable-dev-shm-usage"
             ],
-            executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable',
+            executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
+            headless: "new",
             timeout: 60000
         });
-        
-        // Création des pages
-        const mainPage = await browser.newPage();
-        await mainPage.setViewport({ width: 1280, height: 720 });
-        await mainPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        
-        const spoilerPage = await browser.newPage();
-        await spoilerPage.setViewport({ width: 1280, height: 720 });
-        
-        // Gestion de la connexion avec réessai
-        while (true) {
-            if (await handleLogin(mainPage)) {
-                break;
-            } else {
-                console.log('Nouvelle tentative de connexion dans 10 secondes...');
-                await mainPage.waitForTimeout(10000);
-                await mainPage.reload();
-            }
-        }
-        
-        // Initialisation de l'onglet de résolution
-        console.log('Initialisation de l\'onglet de résolution...');
-        await spoilerPage.goto('https://sudokuspoiler.com/sudoku/sudoku9', { waitUntil: 'domcontentloaded' });
-        await spoilerPage.waitForTimeout(3000);
-        
-        let roundNumber = 1;
-        const maxRetries = 3;
-        
-        while (true) {
-            let retries = 0;
-            let success = false;
-            
-            while (!success && retries < maxRetries) {
-                success = await solveOneSudoku(mainPage, spoilerPage, roundNumber);
-                if (!success) {
-                    retries++;
-                    console.log(`🔄 Tentative ${retries}/${maxRetries}`);
-                    await mainPage.waitForTimeout(2000);
-                }
-            }
-            
-            if (success) {
-                roundNumber++;
-            } else {
-                console.log('🔁 Réinitialisation complète');
-                await browser.close();
-                await mainPage.waitForTimeout(2000);
-                
-                browser = await puppeteer.launch({
-                    headless: false,
-                    args: [
-                        '--disable-setuid-sandbox',
-                        '--no-sandbox',
-                        '--single-process',
-                        '--no-zygote',
-                        '--disable-dev-shm-usage'
-                    ],
-                    executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable',
-                    timeout: 60000
-                });
-                
-                const newMainPage = await browser.newPage();
-                await newMainPage.setViewport({ width: 1280, height: 720 });
-                
-                // Reconnexion après réinitialisation
-                while (true) {
-                    if (await handleLogin(newMainPage)) {
-                        mainPage = newMainPage;
-                        break;
-                    } else {
-                        console.log('Nouvelle tentative de connexion dans 10 secondes...');
-                        await newMainPage.waitForTimeout(10000);
-                        await newMainPage.reload();
-                    }
-                }
-                
-                // Réinitialisation de l'onglet de résolution
-                spoilerPage = await browser.newPage();
-                await spoilerPage.goto('https://sudokuspoiler.com/sudoku/sudoku9', { waitUntil: 'domcontentloaded' });
-                await spoilerPage.waitForTimeout(5000);
-            }
-        }
+
+        currentPage = await currentBrowser.newPage();
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await currentPage.setViewport({ width: 1280, height: 720 });
     } catch (error) {
-        console.log(`❌ Erreur: ${error.message}`);
-    } finally {
-        if (browser) await browser.close();
-        rl.close();
-        console.log('👋 Programme terminé');
+        console.error("Erreur lors de la réinitialisation:", error);
     }
 }
 
-main().catch(console.error);
+// Fonction utilitaire pour sleep
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Gestion de l'arrêt propre
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Arrêt par utilisateur');
+    if (currentBrowser) {
+        await currentBrowser.close();
+    }
+    process.exit(0);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Sudoku Solver API running on port ${PORT}`);
+    console.log(`📱 Endpoints disponibles:`);
+    console.log(`   POST /start-sudoku - Démarre le processus`);
+    console.log(`   POST /submit-phone - Soumet le numéro (body: {phone: "123456789"})`);
+    console.log(`   POST /submit-otp - Soumet l'OTP (body: {otp: "123456"})`);
+    console.log(`   GET /status - Vérifie le statut`);
+});
