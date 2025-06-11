@@ -257,7 +257,7 @@ async function solveSudokuProcess() {
         await currentPage.setViewport({ width: 1280, height: 720 });
 
         // Essayer de charger les cookies
-        cookiesLoaded = await loadCookies(currentPage);
+        let cookiesLoaded = await loadCookies(currentPage);
         
         // Gestion de la connexion avec réessai
         let loginSuccess = false;
