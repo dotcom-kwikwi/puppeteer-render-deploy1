@@ -191,7 +191,11 @@ async function shouldContinueSolving() {
 
         // Récupérer le score du dernier du classement
         const lastPlaceScore = await currentPage.evaluate(() => {
-            const leaderboardItems = document.querySelectorAll('div.mt-6.border.border-\\[#29a19c\\].rounded-lg.p-4 div.space-y-3 > div');
+            // Sélecteur simplifié pour le classement
+            const leaderboard = document.querySelector('div.mt-6.border.rounded-lg.p-4');
+            if (!leaderboard) return null;
+            
+            const leaderboardItems = leaderboard.querySelectorAll('div.space-y-3 > div');
             if (leaderboardItems.length === 0) return null;
             
             const lastItem = leaderboardItems[leaderboardItems.length - 1];
@@ -201,10 +205,11 @@ async function shouldContinueSolving() {
 
         // Récupérer mon score
         const myScore = await currentPage.evaluate(() => {
-            const myScoreElement = document.querySelector('div.relative.z-10.bg-teal-800\\/70.p-3.rounded.text-xs span.text-white.ml-4');
-            if (!myScoreElement) return null;
+            // Sélecteur simplifié pour le score
+            const scoreElement = document.querySelector('div.relative.z-10.bg-teal-800 p-3.rounded.text-xs span.text-white');
+            if (!scoreElement) return null;
             
-            const scoreText = myScoreElement.textContent;
+            const scoreText = scoreElement.textContent;
             const scoreMatch = scoreText.match(/(\d+)/);
             return scoreMatch ? parseInt(scoreMatch[1]) : null;
         });
@@ -257,7 +262,7 @@ async function solveSudokuProcess() {
         await currentPage.setViewport({ width: 1280, height: 720 });
 
         // Essayer de charger les cookies
-        let cookiesLoaded = await loadCookies(currentPage);
+        const cookiesLoaded = await loadCookies(currentPage);
         
         // Gestion de la connexion avec réessai
         let loginSuccess = false;
@@ -317,14 +322,15 @@ async function solveSudokuProcess() {
             // Vérifier si on doit continuer avant chaque nouveau Sudoku
             if (solvedCount > 0 && (solvedCount % 50 === 0 || solvedCount >= MAX_SOLVED_PER_SESSION)) {
                 const shouldContinue = await shouldContinueSolving();
+                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2" });
                 if (!shouldContinue) {
                     console.log("🛑 Arrêt demandé par la logique de score");
-                    break;
+                    continue;
                 }
 
                 if (solvedCount >= MAX_SOLVED_PER_SESSION) {
                     console.log(`🔁 Limite de ${MAX_SOLVED_PER_SESSION} Sudokus atteinte, réinitialisation`);
-                    await resetBrowser();
+                    //await resetBrowser(); // commenter par ce que on ne veut pas reinitialiser le navigateur
                     solvedCount = 0;
                     continue;
                 }
