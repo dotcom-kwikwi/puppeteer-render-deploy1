@@ -406,65 +406,71 @@ async function solveOneSudoku(roundNumber) {
         }
         
         // Étape 2: Résolution sur le deuxième onglet
-        console.log("\nÉtape 2: Résolution sur anysudokusolver.com");
-        await solverPage.bringToFront();
-        
-        try {
-            // Vérifier que la page du solveur est encore accessible
-            const currentUrl = solverPage.url();
-            if (!currentUrl.includes('anysudokusolver.com')) {
-                console.log("⚠ Page solveur perdue, rechargement...");
-                await solverPage.goto("https://anysudokusolver.com/", { 
-                    waitUntil: "domcontentloaded", 
-                    timeout: 60000 
-                });
-                await sleep(3000);
-            }
-            
-            // Réinitialisation du solveur
-            console.log("Réinitialisation du solveur...");
-            await solverPage.waitForSelector("input[type='reset']", { timeout: 30000 });
-            await solverPage.click("input[type='reset']");
-            await sleep(1000);
-            
-            // Saisie de la grille
-            console.log("Saisie de la grille...");
-            const inputs = await solverPage.$$('input.c');
-            
-            if (inputs.length < 81) {
-                throw new Error(`Grille incomplète: ${inputs.length} cases trouvées au lieu de 81`);
-            }
-            
-            for (let i = 0; i < Math.min(inputs.length, 81); i++) {
-                if (gridValues[i]) {
-                    await inputs[i].type(gridValues[i]);
-                    await sleep(50);
-                }
-            }
-            
-            // Résolution
-            console.log("Résolution en cours...");
-            await solverPage.click("input[value='Solve']");
-            await sleep(4000);
-            
-            // Récupération de la solution
-            const solvedInputs = await solverPage.$$('input.c');
-            const solvedValues = [];
-            for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
-                const value = await solvedInputs[i].evaluate(el => el.value);
-                solvedValues.push(value);
-            }
-            
-            console.log(`✅ Solution obtenue: ${solvedValues.filter(v => v).length}/81 cases`);
-            
-        } catch (error) {
-            console.error(`❌ Erreur sur le solveur: ${error.message}`);
-            return false;
+console.log("\nÉtape 2: Résolution sur anysudokusolver.com");
+await solverPage.bringToFront();
+
+let solvedValues = []; // Déclaration au niveau de la fonction
+
+try {
+    // Vérifier que la page du solveur est encore accessible
+    const currentUrl = solverPage.url();
+    if (!currentUrl.includes('anysudokusolver.com')) {
+        console.log("⚠ Page solveur perdue, rechargement...");
+        await solverPage.goto("https://anysudokusolver.com/", { 
+            waitUntil: "domcontentloaded", 
+            timeout: 60000 
+        });
+        await sleep(3000);
+    }
+    
+    // Réinitialisation du solveur
+    console.log("Réinitialisation du solveur...");
+    await solverPage.waitForSelector("input[type='reset']", { timeout: 30000 });
+    await solverPage.click("input[type='reset']");
+    await sleep(1000);
+    
+    // Saisie de la grille
+    console.log("Saisie de la grille...");
+    const inputs = await solverPage.$$('input.c');
+    
+    if (inputs.length < 81) {
+        throw new Error(`Grille incomplète: ${inputs.length} cases trouvées au lieu de 81`);
+    }
+    
+    for (let i = 0; i < Math.min(inputs.length, 81); i++) {
+        if (gridValues[i]) {
+            await inputs[i].type(gridValues[i]);
+            await sleep(50);
         }
-        
-        // Étape 3: Retour au premier onglet
-        console.log("\nÉtape 3: Retour à l'application principale");
-        await currentPage.bringToFront();
+    }
+    
+    // Résolution
+    console.log("Résolution en cours...");
+    await solverPage.click("input[value='Solve']");
+    await sleep(4000);
+    
+    // Récupération de la solution
+    const solvedInputs = await solverPage.$$('input.c');
+    solvedValues = []; // Réinitialisation
+    for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
+        const value = await solvedInputs[i].evaluate(el => el.value);
+        solvedValues.push(value);
+    }
+    
+    if (solvedValues.filter(v => v).length === 0) {
+        throw new Error("Aucune solution trouvée");
+    }
+    
+    console.log(`✅ Solution obtenue: ${solvedValues.filter(v => v).length}/81 cases`);
+    
+} catch (error) {
+    console.error(`❌ Erreur sur le solveur: ${error.message}`);
+    return false;
+}
+
+// Étape 3: Retour au premier onglet
+console.log("\nÉtape 3: Retour à l'application principale");
+await currentPage.bringToFront();
         
         // Vérifier si la grille est toujours là
         const stillThere = await getSudokuGrid();
