@@ -174,29 +174,29 @@ async function solveSudokuProcess() {
             }
         }
 
-        // Initialisation de l'onglet de résolution
+        // Initialisation de l'onglet de résolution avec le nouveau site
         console.log("Initialisation de l'onglet de résolution...");
         solverPage = await currentBrowser.newPage();
         
-        // Tentative de connexion au solveur avec plusieurs essais
+        // Tentative de connexion au nouveau solveur avec plusieurs essais
         let solverConnected = false;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                console.log(`Tentative ${attempt}/3 de connexion à sudokuspoiler.com...`);
-                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                console.log(`Tentative ${attempt}/3 de connexion à anysudokusolver.com...`);
+                await solverPage.goto("https://anysudokusolver.com/", { 
                     waitUntil: "domcontentloaded", 
                     timeout: 60000 
                 });
                 await sleep(3000);
                 
-                // Vérifier que la page s'est bien chargée
-                const hasGrid = await solverPage.$('#grid');
-                if (hasGrid) {
-                    console.log("✅ Solveur connecté avec succès!");
+                // Vérifier que la page s'est bien chargée en cherchant le formulaire
+                const hasForm = await solverPage.$('form.board');
+                if (hasForm) {
+                    console.log("✅ Nouveau solveur connecté avec succès!");
                     solverConnected = true;
                     break;
                 } else {
-                    console.log(`❌ Tentative ${attempt} échouée - grille non trouvée`);
+                    console.log(`❌ Tentative ${attempt} échouée - formulaire non trouvé`);
                 }
             } catch (error) {
                 console.log(`❌ Tentative ${attempt} échouée: ${error.message}`);
@@ -207,7 +207,7 @@ async function solveSudokuProcess() {
         }
         
         if (!solverConnected) {
-            throw new Error("Impossible de se connecter au solveur après 3 tentatives");
+            throw new Error("Impossible de se connecter au nouveau solveur après 3 tentatives");
         }
 
         let roundNumber = 1;
@@ -246,19 +246,19 @@ async function solveSudokuProcess() {
                 // Réinitialisation de l'onglet de résolution
                 solverPage = await currentBrowser.newPage();
                 
-                // Tentative de reconnexion au solveur
+                // Tentative de reconnexion au nouveau solveur
                 let reconnected = false;
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
                         console.log(`Reconnexion solveur ${attempt}/3...`);
-                        await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                        await solverPage.goto("https://anysudokusolver.com/", { 
                             waitUntil: "domcontentloaded", 
                             timeout: 60000 
                         });
                         await sleep(3000);
                         
-                        const hasGrid = await solverPage.$('#grid');
-                        if (hasGrid) {
+                        const hasForm = await solverPage.$('form.board');
+                        if (hasForm) {
                             reconnected = true;
                             break;
                         }
@@ -388,7 +388,7 @@ async function handleLogin(maxAttempts = 3) {
     return false;
 }
 
-// Fonction pour résoudre un Sudoku
+// Fonction pour résoudre un Sudoku avec le nouveau solveur
 async function solveOneSudoku(roundNumber) {
     console.log(`\n${'='.repeat(50)}`);
     console.log(`🎯 ROUND ${roundNumber}`);
@@ -405,64 +405,90 @@ async function solveOneSudoku(roundNumber) {
             return false;
         }
         
-        // Étape 2: Résolution sur le deuxième onglet
-        console.log("\nÉtape 2: Résolution sur sudokuspoiler.com");
+        // Étape 2: Résolution sur le nouveau solveur
+        console.log("\nÉtape 2: Résolution sur anysudokusolver.com");
         await solverPage.bringToFront();
         
         try {
             // Vérifier que la page du solveur est encore accessible
             const currentUrl = solverPage.url();
-            if (!currentUrl.includes('sudokuspoiler.com')) {
+            if (!currentUrl.includes('anysudokusolver.com')) {
                 console.log("⚠ Page solveur perdue, rechargement...");
-                await solverPage.goto("https://sudokuspoiler.com/sudoku/sudoku9", { 
+                await solverPage.goto("https://anysudokusolver.com/", { 
                     waitUntil: "domcontentloaded", 
                     timeout: 60000 
                 });
                 await sleep(3000);
             }
             
-            // Fermer les pubs
-            await closeAdsOnSpoiler();
-            
-            // Réinitialisation du solveur
+            // Réinitialisation du solveur (bouton Reset)
             console.log("Réinitialisation du solveur...");
-            await solverPage.waitForSelector("#resetButton", { timeout: 30000 });
-            await solverPage.click("#resetButton");
+            await solverPage.waitForSelector('input[type="reset"]', { timeout: 30000 });
+            await solverPage.click('input[type="reset"]');
             await sleep(1000);
             
-            // Saisie de la grille
+            // Saisie de la grille dans les inputs avec les ID c11, c12, etc.
             console.log("Saisie de la grille...");
-            await solverPage.waitForSelector("#grid input", { timeout: 30000 });
-            const inputs = await solverPage.$("#grid input");
             
-            if (inputs.length < 81) {
-                throw new Error(`Grille incomplète: ${inputs.length} cases trouvées au lieu de 81`);
-            }
-            
-            for (let i = 0; i < Math.min(inputs.length, 81); i++) {
-                if (gridValues[i]) {
-                    await inputs[i].type(gridValues[i]);
-                    await sleep(50);
+            for (let row = 1; row <= 9; row++) {
+                for (let col = 1; col <= 9; col++) {
+                    const index = (row - 1) * 9 + (col - 1);
+                    const cellId = `c${row}${col}`;
+                    
+                    if (gridValues[index] && gridValues[index] !== '') {
+                        try {
+                            await solverPage.waitForSelector(`#${cellId}`, { timeout: 5000 });
+                            
+                            // Effacer le contenu existant et saisir la nouvelle valeur
+                            await solverPage.evaluate((id) => {
+                                document.getElementById(id).value = '';
+                            }, cellId);
+                            
+                            await solverPage.type(`#${cellId}`, gridValues[index]);
+                            await sleep(50);
+                        } catch (error) {
+                            console.log(`Erreur saisie cellule ${cellId}: ${error.message.substring(0, 50)}`);
+                        }
+                    }
                 }
             }
             
-            // Résolution
+            // Résolution - cliquer sur le bouton Solve
             console.log("Résolution en cours...");
-            await solverPage.click("#solveButton");
+            await solverPage.waitForSelector('input[value="Solve"]', { timeout: 30000 });
+            await solverPage.click('input[value="Solve"]');
             await sleep(4000);
             
             // Récupération de la solution
-            const solvedInputs = await solverPage.$("#grid input");
+            console.log("Récupération de la solution...");
             const solvedValues = [];
-            for (let i = 0; i < Math.min(solvedInputs.length, 81); i++) {
-                const value = await solvedInputs[i].evaluate(el => el.value);
-                solvedValues.push(value);
+            
+            for (let row = 1; row <= 9; row++) {
+                for (let col = 1; col <= 9; col++) {
+                    const cellId = `c${row}${col}`;
+                    try {
+                        const value = await solverPage.evaluate((id) => {
+                            const element = document.getElementById(id);
+                            return element ? element.value : '';
+                        }, cellId);
+                        solvedValues.push(value);
+                    } catch (error) {
+                        console.log(`Erreur lecture cellule ${cellId}: ${error.message.substring(0, 50)}`);
+                        solvedValues.push('');
+                    }
+                }
             }
             
-            console.log(`✅ Solution obtenue: ${solvedValues.filter(v => v).length}/81 cases`);
+            console.log(`✅ Solution obtenue: ${solvedValues.filter(v => v && v !== '').length}/81 cases`);
+            
+            // Vérifier si nous avons une solution complète
+            if (solvedValues.filter(v => v && v !== '').length < 70) {
+                console.log("⚠ Solution incomplète, nouvelle tentative...");
+                return false;
+            }
             
         } catch (error) {
-            console.error(`❌ Erreur sur le solveur: ${error.message}`);
+            console.error(`❌ Erreur sur le nouveau solveur: ${error.message}`);
             return false;
         }
         
@@ -584,36 +610,6 @@ async function fillSolution(solvedValues) {
         console.error(`Erreur remplissage: ${error.message}`);
         return false;
     }
-}
-
-// Fonction pour fermer les pubs sur SudokuSpoiler
-async function closeAdsOnSpoiler() {
-    const closeSelectors = [
-        'div[id="dismiss-button"]',
-        'div.close-button',
-        'button[aria-label="Close ad"]',
-        'div[aria-label="Close ad"]'
-    ];
-    
-    for (const selector of closeSelectors) {
-        try {
-            const elements = await solverPage.$$(selector);
-            for (const element of elements) {
-                const isDisplayed = await element.evaluate(el => {
-                    const style = window.getComputedStyle(el);
-                    return style.display !== 'none' && style.visibility !== 'hidden';
-                });
-                if (isDisplayed) {
-                    await element.click();
-                    await sleep(1000);
-                    return true;
-                }
-            }
-        } catch (error) {
-            continue;
-        }
-    }
-    return false;
 }
 
 // Fonction pour réinitialiser le navigateur
