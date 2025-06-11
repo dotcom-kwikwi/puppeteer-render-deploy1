@@ -204,15 +204,25 @@ async function shouldContinueSolving() {
         });
 
         // Récupérer mon score
-        const myScore = await currentPage.evaluate(() => {
-            // Sélecteur simplifié pour le score
-            const scoreElement = document.querySelector('div.relative.z-10.bg-teal-800 p-3.rounded.text-xs span.text-white');
-            if (!scoreElement) return null;
-            
-            const scoreText = scoreElement.textContent;
-            const scoreMatch = scoreText.match(/(\d+)/);
-            return scoreMatch ? parseInt(scoreMatch[1]) : null;
-        });
+const myScore = await currentPage.evaluate(() => {
+    // Sélecteur plus précis pour le span contenant le score
+    const scoreElement = document.querySelector('div.relative.z-10.bg-teal-800\\/70 span.text-white.ml-4');
+    if (!scoreElement) {
+        console.log("Élément du score non trouvé");
+        return null;
+    }
+    
+    // Extraire uniquement les chiffres du texte
+    const scoreText = scoreElement.textContent.trim();
+    const scoreNumber = parseInt(scoreText);
+    
+    if (isNaN(scoreNumber)) {
+        console.log("Impossible d'extraire le nombre du texte:", scoreText);
+        return null;
+    }
+    
+    return scoreNumber;
+});
 
         console.log(`📊 Scores - Moi: ${myScore}, Dernier: ${lastPlaceScore}`);
 
@@ -322,7 +332,11 @@ async function solveSudokuProcess() {
             // Vérifier si on doit continuer avant chaque nouveau Sudoku
             if (solvedCount > 0 && (solvedCount % 50 === 0 || solvedCount >= MAX_SOLVED_PER_SESSION)) {
                 const shouldContinue = await shouldContinueSolving();
+
+                // vu que l'on a passer a une autre page pour la verification il faut que l'on retourne a la page des jeux
                 await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2" });
+                await sleep(3000); // Attendre que la page soit bien chargée
+                
                 if (!shouldContinue) {
                     console.log("🛑 Arrêt demandé par la logique de score");
                     continue;
