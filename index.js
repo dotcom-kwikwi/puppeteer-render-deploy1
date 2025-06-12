@@ -235,9 +235,9 @@ const myScore = await currentPage.evaluate(() => {
         const difference = myScore - lastPlaceScore;
         console.log(`📈 Différence: ${difference} points`);
 
-        if (difference >= 500) {
-            console.log(`🛑 Différence de 500+ points atteinte (${difference}), pause de 30 minutes`);
-            await sleep(30 * 60 * 1000); // 30 minutes
+        if (difference >= 600) {
+            console.log(`🛑 Différence de 600+ points atteinte (${difference}), pause de 3 heures`);
+            await sleep(3 * 60 * 60 * 1000); // 3 heures
             return await shouldContinueSolving(); // Vérifier à nouveau après la pause
         }
 
