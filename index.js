@@ -50,7 +50,7 @@ const BROWSER_CONFIG = {
 // Obtenir le chemin du répertoire actuel
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Cache pour les sélecteurs
+// Cache pour les sélecteurs mis à jour
 const SELECTORS = {
     loginButton: "button.w-53.py-3.px-6.bg-gradient-to-r.from-amber-400.to-amber-500.text-white.text-lg.font-bold.rounded-full.shadow-lg.mt-36",
     phoneInput: "input[placeholder='Nimushiremwo inomero ya terefone']",
@@ -210,6 +210,7 @@ async function waitForElement(page, selector, timeout = 10000, retries = 3) {
             await page.waitForSelector(selector, { timeout });
             return true;
         } catch (error) {
+            console.log(`⚠ Tentative ${i + 1}/${retries} pour ${selector} échouée`);
             if (i === retries - 1) throw error;
             await sleep(1000);
         }
@@ -217,12 +218,38 @@ async function waitForElement(page, selector, timeout = 10000, retries = 3) {
     return false;
 }
 
+// Configuration des pages pour permettre les ressources nécessaires
+function setupPageInterception(page, allowAll = false) {
+    return page.setRequestInterception(true).then(() => {
+        page.on('request', (req) => {
+            const resourceType = req.resourceType();
+            const url = req.url();
+            
+            if (allowAll) {
+                // Pour la page principale, on autorise tout sauf les images lourdes
+                if (resourceType === 'image' && (url.includes('.jpg') || url.includes('.png') || url.includes('.gif'))) {
+                    req.abort();
+                } else {
+                    req.continue();
+                }
+            } else {
+                // Pour le solveur, on bloque toujours les ressources lourdes
+                if (['image', 'media'].includes(resourceType)) {
+                    req.abort();
+                } else {
+                    req.continue();
+                }
+            }
+        });
+    });
+}
+
 // Fonction pour vérifier le score optimisée
 async function shouldContinueSolving() {
     try {
         console.log("🔍 Vérification des scores...");
-        await currentPage.goto("https://sudoku.lumitelburundi.com", { waitUntil: "domcontentloaded", timeout: 15000 });
-        await sleep(2000);
+        await currentPage.goto("https://sudoku.lumitelburundi.com", { waitUntil: "networkidle2", timeout: 20000 });
+        await sleep(3000);
 
         const scores = await currentPage.evaluate((selectors) => {
             const leaderboard = document.querySelector(selectors.leaderboard);
@@ -280,19 +307,9 @@ async function solveSudokuProcess() {
         currentBrowser = await puppeteer.launch(BROWSER_CONFIG);
         currentPage = await currentBrowser.newPage();
         
-        // Configuration optimisée de la page
-        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-        await currentPage.setRequestInterception(true);
-        
-        // Bloquer les ressources inutiles
-        currentPage.on('request', (req) => {
-            const resourceType = req.resourceType();
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
+        // Configuration optimisée de la page - PERMETTRE CSS ET FONTS
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await setupPageInterception(currentPage, true); // allowAll = true pour la page principale
 
         const cookiesLoaded = await loadCookies(currentPage);
         
@@ -316,16 +333,7 @@ async function solveSudokuProcess() {
 
         // Initialisation du solveur
         solverPage = await currentBrowser.newPage();
-        await solverPage.setRequestInterception(true);
-        solverPage.on('request', (req) => {
-            const resourceType = req.resourceType();
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
-
+        await setupPageInterception(solverPage, false); // Bloquer les ressources lourdes pour le solveur
         await initializeSolver();
 
         // Boucle principale
@@ -334,8 +342,8 @@ async function solveSudokuProcess() {
             // Vérification des scores
             if (solvedCount > 0 && (solvedCount % 100 === 0 || solvedCount >= MAX_SOLVED_PER_SESSION)) {
                 await shouldContinueSolving();
-                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "domcontentloaded" });
-                await sleep(2000);
+                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2", timeout: 20000 });
+                await sleep(3000);
                 
                 if (solvedCount >= MAX_SOLVED_PER_SESSION) {
                     console.log(`🔁 Limite atteinte, réinitialisation`);
@@ -368,8 +376,11 @@ async function handleLogin(useCookies = false) {
     try {
         console.log("🔐 Tentative de connexion...");
         
-        await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "domcontentloaded", timeout: 15000 });
-        await sleep(1500);
+        await currentPage.goto("https://sudoku.lumitelburundi.com/game", { 
+            waitUntil: "networkidle2", 
+            timeout: 20000 
+        });
+        await sleep(3000);
         
         if (currentPage.url().includes("/game")) {
             console.log("✅ Déjà connecté");
@@ -379,12 +390,12 @@ async function handleLogin(useCookies = false) {
         console.log("📱 Processus de connexion requis");
         
         // Étape 1: Bouton Kwinjira
-        await waitForElement(currentPage, SELECTORS.loginButton);
+        await waitForElement(currentPage, SELECTORS.loginButton, 15000);
         await currentPage.click(SELECTORS.loginButton);
-        await currentPage.waitForFunction(() => window.location.href.includes("/login"));
+        await currentPage.waitForFunction(() => window.location.href.includes("/login"), { timeout: 15000 });
         
         // Étape 2: Numéro de téléphone
-        await waitForElement(currentPage, SELECTORS.phoneInput);
+        await waitForElement(currentPage, SELECTORS.phoneInput, 15000);
         
         waitingForPhone = true;
         phoneNumber = '';
@@ -396,10 +407,10 @@ async function handleLogin(useCookies = false) {
         
         await currentPage.type(SELECTORS.phoneInput, phoneNumber);
         await currentPage.click(SELECTORS.sendOtpButton);
-        await sleep(1500);
+        await sleep(2000);
         
         // Étape 3: Code OTP
-        await waitForElement(currentPage, SELECTORS.otpInput);
+        await waitForElement(currentPage, SELECTORS.otpInput, 15000);
         
         waitingForOTP = true;
         otpCode = '';
@@ -411,10 +422,13 @@ async function handleLogin(useCookies = false) {
         
         await currentPage.type(SELECTORS.otpInput, otpCode);
         await currentPage.click(SELECTORS.confirmButton);
-        await sleep(8000);
+        await sleep(10000);
         
-        await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "domcontentloaded" });
-        await sleep(2000);
+        await currentPage.goto("https://sudoku.lumitelburundi.com/game", { 
+            waitUntil: "networkidle2", 
+            timeout: 20000 
+        });
+        await sleep(3000);
         
         return currentPage.url().includes("/game");
     } catch (error) {
@@ -428,8 +442,8 @@ async function initializeSolver() {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             console.log(`Connexion solveur ${attempt}/3...`);
-            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "domcontentloaded", timeout: 30000 });
-            await sleep(2000);
+            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "networkidle2", timeout: 30000 });
+            await sleep(3000);
             
             const hasGrid = await solverPage.$(SELECTORS.solverInputs);
             if (hasGrid) {
@@ -467,7 +481,7 @@ async function solveOneSudoku(roundNumber) {
         try {
             await sleep(3000);
             await currentPage.click(SELECTORS.newGameButton);
-            await sleep(3000);
+            await sleep(5000); // Plus de temps pour le chargement
             return true;
         } catch (error) {
             console.log("Échec nouveau Sudoku");
@@ -480,17 +494,68 @@ async function solveOneSudoku(roundNumber) {
     }
 }
 
-// Récupération grille optimisée
+// Récupération grille optimisée avec sélecteurs alternatifs
 async function getSudokuGrid() {
     try {
-        await waitForElement(currentPage, SELECTORS.sudokuGrid, 15000);
+        console.log("🔍 Recherche de la grille Sudoku...");
         
-        const gridValues = await currentPage.evaluate((selector) => {
-            const cells = document.querySelectorAll(selector);
-            return Array.from(cells).map(cell => cell.textContent.trim());
-        }, SELECTORS.sudokuCells);
+        // Attendre que la page soit complètement chargée
+        await currentPage.waitForFunction(() => document.readyState === 'complete', { timeout: 10000 });
+        await sleep(2000);
         
-        return gridValues.length === 81 ? gridValues : null;
+        // Essayer plusieurs sélecteurs possibles
+        const selectors = [
+            SELECTORS.sudokuGrid,
+            "div.grid.grid-cols-9",
+            "[class*='grid'][class*='grid-cols-9']",
+            "div[class*='grid-cols-9']"
+        ];
+        
+        let gridValues = null;
+        
+        for (const selector of selectors) {
+            try {
+                console.log(`Tentative avec sélecteur: ${selector}`);
+                await waitForElement(currentPage, selector, 10000);
+                
+                gridValues = await currentPage.evaluate((sel) => {
+                    const gridContainer = document.querySelector(sel);
+                    if (!gridContainer) return null;
+                    
+                    // Chercher tous les divs enfants qui représentent les cellules
+                    const cells = gridContainer.querySelectorAll('div.w-10.h-10');
+                    if (cells.length !== 81) {
+                        console.log(`Nombre de cellules incorrect: ${cells.length}`);
+                        return null;
+                    }
+                    
+                    return Array.from(cells).map(cell => cell.textContent.trim());
+                }, selector);
+                
+                if (gridValues && gridValues.length === 81) {
+                    console.log(`✅ Grille trouvée avec ${selector} (${gridValues.filter(v => v).length}/81 cellules remplies)`);
+                    break;
+                }
+            } catch (error) {
+                console.log(`❌ Échec avec ${selector}: ${error.message}`);
+                continue;
+            }
+        }
+        
+        if (!gridValues) {
+            // Debug: afficher le HTML de la page
+            const pageContent = await currentPage.evaluate(() => {
+                const grids = document.querySelectorAll('[class*="grid"]');
+                return Array.from(grids).map(grid => ({
+                    classes: grid.className,
+                    children: grid.children.length,
+                    html: grid.outerHTML.substring(0, 200) + '...'
+                }));
+            });
+            console.log("🔍 Grilles trouvées sur la page:", JSON.stringify(pageContent, null, 2));
+        }
+        
+        return gridValues;
     } catch (error) {
         console.error("Erreur récupération grille:", error.message);
         return null;
@@ -502,13 +567,13 @@ async function solvePuzzle(gridValues) {
     try {
         // Vérification URL
         if (!solverPage.url().includes('anysudokusolver.com')) {
-            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "domcontentloaded" });
-            await sleep(2000);
+            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "networkidle2", timeout: 30000 });
+            await sleep(3000);
         }
         
         // Reset
         await solverPage.click(SELECTORS.solverReset);
-        await sleep(800);
+        await sleep(1000);
         
         // Saisie
         const inputs = await solverPage.$$(SELECTORS.solverInputs);
@@ -525,7 +590,7 @@ async function solvePuzzle(gridValues) {
         
         // Résolution
         await solverPage.click(SELECTORS.solverSolve);
-        await sleep(3000);
+        await sleep(4000);
         
         // Récupération solution
         const solvedInputs = await solverPage.$$(SELECTORS.solverInputs);
@@ -576,36 +641,19 @@ async function fillSolution(solvedValues) {
 async function resetSession() {
     try {
         await closeBrowser();
-        await sleep(2000);
+        await sleep(3000);
         
         currentBrowser = await puppeteer.launch(BROWSER_CONFIG);
         currentPage = await currentBrowser.newPage();
         
-        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-        await currentPage.setRequestInterception(true);
-        currentPage.on('request', (req) => {
-            const resourceType = req.resourceType();
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await setupPageInterception(currentPage, true);
         
         await handleLogin(false);
         await saveCookies(currentPage);
         
         solverPage = await currentBrowser.newPage();
-        await solverPage.setRequestInterception(true);
-        solverPage.on('request', (req) => {
-            const resourceType = req.resourceType();
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
-        
+        await setupPageInterception(solverPage, false);
         await initializeSolver();
         
     } catch (error) {
