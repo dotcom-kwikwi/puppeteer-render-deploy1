@@ -44,13 +44,14 @@ const BROWSER_CONFIG = {
     executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
     headless: "new",
     timeout: 30000,
-    defaultViewport: { width: 1280, height: 720 }
+    defaultViewport: { width: 1280, height: 720 },
+    ignoreHTTPSErrors: true
 };
 
 // Obtenir le chemin du répertoire actuel
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Cache pour les sélecteurs mis à jour
+// Cache pour les sélecteurs
 const SELECTORS = {
     loginButton: "button.w-53.py-3.px-6.bg-gradient-to-r.from-amber-400.to-amber-500.text-white.text-lg.font-bold.rounded-full.shadow-lg.mt-36",
     phoneInput: "input[placeholder='Nimushiremwo inomero ya terefone']",
@@ -204,44 +205,18 @@ function sleep(ms) {
 }
 
 // Fonction pour attendre un élément avec retry
-async function waitForElement(page, selector, timeout = 10000, retries = 3) {
+async function waitForElement(page, selector, timeout = 15000, retries = 5) {
     for (let i = 0; i < retries; i++) {
         try {
             await page.waitForSelector(selector, { timeout });
             return true;
         } catch (error) {
-            console.log(`⚠ Tentative ${i + 1}/${retries} pour ${selector} échouée`);
             if (i === retries - 1) throw error;
-            await sleep(1000);
+            await sleep(2000);
+            console.log(`🔁 Tentative ${i + 1}/${retries} - Nouvel essai pour ${selector}`);
         }
     }
     return false;
-}
-
-// Configuration des pages pour permettre les ressources nécessaires
-function setupPageInterception(page, allowAll = false) {
-    return page.setRequestInterception(true).then(() => {
-        page.on('request', (req) => {
-            const resourceType = req.resourceType();
-            const url = req.url();
-            
-            if (allowAll) {
-                // Pour la page principale, on autorise tout sauf les images lourdes
-                if (resourceType === 'image' && (url.includes('.jpg') || url.includes('.png') || url.includes('.gif'))) {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            } else {
-                // Pour le solveur, on bloque toujours les ressources lourdes
-                if (['image', 'media'].includes(resourceType)) {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            }
-        });
-    });
 }
 
 // Fonction pour vérifier le score optimisée
@@ -307,9 +282,19 @@ async function solveSudokuProcess() {
         currentBrowser = await puppeteer.launch(BROWSER_CONFIG);
         currentPage = await currentBrowser.newPage();
         
-        // Configuration optimisée de la page - PERMETTRE CSS ET FONTS
-        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await setupPageInterception(currentPage, true); // allowAll = true pour la page principale
+        // Configuration optimisée de la page
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        await currentPage.setRequestInterception(true);
+        
+        // Bloquer seulement les ressources vraiment inutiles
+        currentPage.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['font', 'media'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
 
         const cookiesLoaded = await loadCookies(currentPage);
         
@@ -333,7 +318,16 @@ async function solveSudokuProcess() {
 
         // Initialisation du solveur
         solverPage = await currentBrowser.newPage();
-        await setupPageInterception(solverPage, false); // Bloquer les ressources lourdes pour le solveur
+        await solverPage.setRequestInterception(true);
+        solverPage.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['font', 'media'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
         await initializeSolver();
 
         // Boucle principale
@@ -342,7 +336,7 @@ async function solveSudokuProcess() {
             // Vérification des scores
             if (solvedCount > 0 && (solvedCount % 100 === 0 || solvedCount >= MAX_SOLVED_PER_SESSION)) {
                 await shouldContinueSolving();
-                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2", timeout: 20000 });
+                await currentPage.goto("https://sudoku.lumitelburundi.com/game", { waitUntil: "networkidle2" });
                 await sleep(3000);
                 
                 if (solvedCount >= MAX_SOLVED_PER_SESSION) {
@@ -365,6 +359,7 @@ async function solveSudokuProcess() {
         }
     } catch (error) {
         console.error('❌ Erreur critique:', error.message);
+        await currentPage.screenshot({ path: 'error.png' });
     } finally {
         await closeBrowser();
         cleanup();
@@ -380,7 +375,7 @@ async function handleLogin(useCookies = false) {
             waitUntil: "networkidle2", 
             timeout: 20000 
         });
-        await sleep(3000);
+        await sleep(2000);
         
         if (currentPage.url().includes("/game")) {
             console.log("✅ Déjà connecté");
@@ -390,12 +385,12 @@ async function handleLogin(useCookies = false) {
         console.log("📱 Processus de connexion requis");
         
         // Étape 1: Bouton Kwinjira
-        await waitForElement(currentPage, SELECTORS.loginButton, 15000);
+        await waitForElement(currentPage, SELECTORS.loginButton);
         await currentPage.click(SELECTORS.loginButton);
-        await currentPage.waitForFunction(() => window.location.href.includes("/login"), { timeout: 15000 });
+        await currentPage.waitForFunction(() => window.location.href.includes("/login"));
         
         // Étape 2: Numéro de téléphone
-        await waitForElement(currentPage, SELECTORS.phoneInput, 15000);
+        await waitForElement(currentPage, SELECTORS.phoneInput);
         
         waitingForPhone = true;
         phoneNumber = '';
@@ -410,7 +405,7 @@ async function handleLogin(useCookies = false) {
         await sleep(2000);
         
         // Étape 3: Code OTP
-        await waitForElement(currentPage, SELECTORS.otpInput, 15000);
+        await waitForElement(currentPage, SELECTORS.otpInput);
         
         waitingForOTP = true;
         otpCode = '';
@@ -422,17 +417,18 @@ async function handleLogin(useCookies = false) {
         
         await currentPage.type(SELECTORS.otpInput, otpCode);
         await currentPage.click(SELECTORS.confirmButton);
-        await sleep(10000);
+        await sleep(5000);
         
         await currentPage.goto("https://sudoku.lumitelburundi.com/game", { 
-            waitUntil: "networkidle2", 
-            timeout: 20000 
+            waitUntil: "networkidle2",
+            timeout: 15000
         });
         await sleep(3000);
         
         return currentPage.url().includes("/game");
     } catch (error) {
         console.error("Erreur connexion:", error.message);
+        await currentPage.screenshot({ path: 'login-error.png' });
         return false;
     }
 }
@@ -442,7 +438,10 @@ async function initializeSolver() {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             console.log(`Connexion solveur ${attempt}/3...`);
-            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "networkidle2", timeout: 30000 });
+            await solverPage.goto("https://anysudokusolver.com/", { 
+                waitUntil: "networkidle2", 
+                timeout: 30000 
+            });
             await sleep(3000);
             
             const hasGrid = await solverPage.$(SELECTORS.solverInputs);
@@ -452,7 +451,7 @@ async function initializeSolver() {
             }
         } catch (error) {
             console.log(`❌ Tentative ${attempt} échouée: ${error.message}`);
-            if (attempt < 3) await sleep(3000);
+            if (attempt < 3) await sleep(5000);
         }
     }
     throw new Error("Impossible d'initialiser le solveur");
@@ -481,7 +480,7 @@ async function solveOneSudoku(roundNumber) {
         try {
             await sleep(3000);
             await currentPage.click(SELECTORS.newGameButton);
-            await sleep(5000); // Plus de temps pour le chargement
+            await sleep(3000);
             return true;
         } catch (error) {
             console.log("Échec nouveau Sudoku");
@@ -490,74 +489,51 @@ async function solveOneSudoku(roundNumber) {
         
     } catch (error) {
         console.error(`Erreur round ${roundNumber}:`, error.message);
+        await currentPage.screenshot({ path: `round-${roundNumber}-error.png` });
         return false;
     }
 }
 
-// Récupération grille optimisée avec sélecteurs alternatifs
+// Récupération grille optimisée
 async function getSudokuGrid() {
     try {
-        console.log("🔍 Recherche de la grille Sudoku...");
-        
         // Attendre que la page soit complètement chargée
-        await currentPage.waitForFunction(() => document.readyState === 'complete', { timeout: 10000 });
-        await sleep(2000);
+        await currentPage.waitForFunction(() => document.readyState === 'complete', { timeout: 20000 });
         
-        // Essayer plusieurs sélecteurs possibles
-        const selectors = [
-            SELECTORS.sudokuGrid,
-            "div.grid.grid-cols-9",
-            "[class*='grid'][class*='grid-cols-9']",
-            "div[class*='grid-cols-9']"
-        ];
+        // Vérifier si la grille existe avec une approche plus flexible
+        const gridExists = await currentPage.evaluate(() => {
+            return document.querySelector('div.grid.grid-cols-9.gap-0.border-4.border-black') !== null;
+        });
         
-        let gridValues = null;
-        
-        for (const selector of selectors) {
-            try {
-                console.log(`Tentative avec sélecteur: ${selector}`);
-                await waitForElement(currentPage, selector, 10000);
-                
-                gridValues = await currentPage.evaluate((sel) => {
-                    const gridContainer = document.querySelector(sel);
-                    if (!gridContainer) return null;
-                    
-                    // Chercher tous les divs enfants qui représentent les cellules
-                    const cells = gridContainer.querySelectorAll('div.w-10.h-10');
-                    if (cells.length !== 81) {
-                        console.log(`Nombre de cellules incorrect: ${cells.length}`);
-                        return null;
-                    }
-                    
-                    return Array.from(cells).map(cell => cell.textContent.trim());
-                }, selector);
-                
-                if (gridValues && gridValues.length === 81) {
-                    console.log(`✅ Grille trouvée avec ${selector} (${gridValues.filter(v => v).length}/81 cellules remplies)`);
-                    break;
-                }
-            } catch (error) {
-                console.log(`❌ Échec avec ${selector}: ${error.message}`);
-                continue;
-            }
+        if (!gridExists) {
+            console.log("Grille non trouvée, tentative de rechargement...");
+            await currentPage.reload({ waitUntil: 'networkidle2' });
+            await sleep(3000);
         }
+
+        // Attendre le sélecteur principal
+        await waitForElement(currentPage, SELECTORS.sudokuGrid, 15000);
         
-        if (!gridValues) {
-            // Debug: afficher le HTML de la page
-            const pageContent = await currentPage.evaluate(() => {
-                const grids = document.querySelectorAll('[class*="grid"]');
-                return Array.from(grids).map(grid => ({
-                    classes: grid.className,
-                    children: grid.children.length,
-                    html: grid.outerHTML.substring(0, 200) + '...'
-                }));
-            });
-            console.log("🔍 Grilles trouvées sur la page:", JSON.stringify(pageContent, null, 2));
+        // Nouvelle tentative avec un sélecteur plus large
+        const gridValues = await currentPage.evaluate((selector) => {
+            const gridContainer = document.querySelector(selector);
+            if (!gridContainer) return null;
+            
+            const cells = gridContainer.querySelectorAll('div.w-10.h-10');
+            return Array.from(cells).map(cell => cell.textContent.trim());
+        }, SELECTORS.sudokuGrid);
+
+        if (!gridValues || gridValues.length !== 81) {
+            console.log("Grille incomplète, valeurs récupérées:", gridValues ? gridValues.length : 'null');
+            return null;
         }
-        
+
+        console.log("Grille récupérée avec succès");
         return gridValues;
     } catch (error) {
         console.error("Erreur récupération grille:", error.message);
+        // Capture d'écran pour débogage
+        await currentPage.screenshot({ path: 'grid-error.png' });
         return null;
     }
 }
@@ -567,7 +543,7 @@ async function solvePuzzle(gridValues) {
     try {
         // Vérification URL
         if (!solverPage.url().includes('anysudokusolver.com')) {
-            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "networkidle2", timeout: 30000 });
+            await solverPage.goto("https://anysudokusolver.com/", { waitUntil: "networkidle2" });
             await sleep(3000);
         }
         
@@ -584,13 +560,13 @@ async function solvePuzzle(gridValues) {
         for (let i = 0; i < 81; i++) {
             if (gridValues[i]) {
                 await inputs[i].type(gridValues[i]);
-                await sleep(30);
+                await sleep(50);
             }
         }
         
         // Résolution
         await solverPage.click(SELECTORS.solverSolve);
-        await sleep(4000);
+        await sleep(3000);
         
         // Récupération solution
         const solvedInputs = await solverPage.$$(SELECTORS.solverInputs);
@@ -603,6 +579,7 @@ async function solvePuzzle(gridValues) {
         return solvedValues.filter(v => v).length > 0 ? solvedValues : null;
     } catch (error) {
         console.error("Erreur résolution:", error.message);
+        await solverPage.screenshot({ path: 'solver-error.png' });
         return null;
     }
 }
@@ -621,18 +598,19 @@ async function fillSolution(solvedValues) {
             
             if (!currentValue) {
                 await cells[i].click();
-                await sleep(200);
+                await sleep(300);
                 
                 const buttonIndex = parseInt(targetValue) - 1;
                 if (numberButtons[buttonIndex]) {
                     await numberButtons[buttonIndex].click();
-                    await sleep(300);
+                    await sleep(400);
                 }
             }
         }
         return true;
     } catch (error) {
         console.error("Erreur remplissage:", error.message);
+        await currentPage.screenshot({ path: 'fill-error.png' });
         return false;
     }
 }
@@ -641,19 +619,36 @@ async function fillSolution(solvedValues) {
 async function resetSession() {
     try {
         await closeBrowser();
-        await sleep(3000);
+        await sleep(2000);
         
         currentBrowser = await puppeteer.launch(BROWSER_CONFIG);
         currentPage = await currentBrowser.newPage();
         
-        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await setupPageInterception(currentPage, true);
+        await currentPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        await currentPage.setRequestInterception(true);
+        currentPage.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['font', 'media'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
         
         await handleLogin(false);
         await saveCookies(currentPage);
         
         solverPage = await currentBrowser.newPage();
-        await setupPageInterception(solverPage, false);
+        await solverPage.setRequestInterception(true);
+        solverPage.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['font', 'media'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+        
         await initializeSolver();
         
     } catch (error) {
