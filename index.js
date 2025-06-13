@@ -139,7 +139,7 @@ app.post("/submit-otp", async (req, res) => {
     });
 });
 
-// Gestion des cookies optimisée
+// Gestion des cookies
 async function saveCookies(page) {
     try {
         const cookies = await page.cookies();
@@ -230,8 +230,8 @@ async function checkScoreDifference() {
         const difference = myScore - lastPlaceScore;
         console.log(`📈 Différence: ${difference} points`);
 
-        if (difference >= 800) {
-            console.log(`🛑 Différence de 800+ points atteinte (${difference}), pause de 3 heures`);
+        if (difference >= 600) {
+            console.log(`🛑 Différence de 600+ points atteinte (${difference}), pause de 3 heures`);
             await sleep(3 * 60 * 60 * 1000);
             return await checkScoreDifference();
         }
@@ -359,7 +359,20 @@ async function connectToSolver(maxAttempts = 3) {
 
 async function getSudokuGrid() {
     try {
-        await currentPage.waitForSelector("div.grid.grid-cols-9.gap-0.border-4.border-black", { timeout: 30000 });
+        // Vérifier d'abord si la page est toujours responsive
+        try {
+            await currentPage.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 });
+        } catch (e) {
+            console.log("⚠ La page ne répond pas, tentative de rafraîchissement...");
+            await currentPage.reload({ waitUntil: "networkidle2" });
+            await sleep(3000);
+        }
+
+        // Attendre le sélecteur avec un timeout raisonnable
+        await currentPage.waitForSelector("div.grid.grid-cols-9.gap-0.border-4.border-black", { 
+            timeout: 20000,
+            visible: true
+        });
         
         const gridValues = await currentPage.evaluate(() => {
             const cells = document.querySelectorAll("div.grid.grid-cols-9.gap-0.border-4.border-black div.w-10.h-10");
@@ -370,7 +383,7 @@ async function getSudokuGrid() {
             return gridValues;
         }
         
-        console.log("Grille incomplète trouvée");
+        console.log("Grille incomplète trouvée (", gridValues.length, "éléments)");
         return null;
     } catch (error) {
         console.error(`Erreur récupération grille: ${error.message}`);
@@ -437,8 +450,15 @@ async function solveOneSudoku(roundNumber) {
         console.log("Étape 1: Chargement de la grille");
         await currentPage.bringToFront();
         
-        const gridValues = await getSudokuGrid();
-        if (!gridValues) return false;
+        // Tentative de récupération de la grille avec rafraîchissement si échec
+        let gridValues = await getSudokuGrid();
+        if (!gridValues) {
+            console.log("🔄 Rafraîchissement de la page...");
+            await currentPage.reload({ waitUntil: "networkidle2" });
+            await sleep(3000);
+            gridValues = await getSudokuGrid();
+            if (!gridValues) return false;
+        }
         
         console.log("\nÉtape 2: Résolution sur anysudokusolver.com");
         await solverPage.bringToFront();
@@ -517,7 +537,9 @@ async function solveOneSudoku(roundNumber) {
             console.log("Nouvelle grille chargée avec succès!");
             return true;
         } catch (error) {
-            console.log("Échec du chargement d'une nouvelle grille");
+            console.log("Échec du chargement d'une nouvelle grille - rafraîchissement...");
+            await currentPage.reload({ waitUntil: "networkidle2" });
+            await sleep(3000);
             return false;
         }
         
@@ -592,7 +614,11 @@ async function solveSudokuProcess() {
                 if (!success) {
                     retries++;
                     console.log(`🔄 Tentative ${retries}/${maxRetries}`);
-                    await sleep(2000);
+                    
+                    // Rafraîchir la page avant de réessayer
+                    console.log("🔄 Rafraîchissement de la page principale...");
+                    await currentPage.reload({ waitUntil: "networkidle2" });
+                    await sleep(3000);
                 }
             }
 
