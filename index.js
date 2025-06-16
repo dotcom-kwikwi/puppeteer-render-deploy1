@@ -552,11 +552,17 @@ async function solveOneSudoku(roundNumber) {
 async function resetBrowser() {
     try {
         if (currentBrowser) {
+            // Sauvegarder les cookies avant de fermer le navigateur
+            if (currentPage) {
+                console.log("💾 Sauvegarde des cookies avant réinitialisation...");
+                await saveCookies(currentPage);
+            }
             await currentBrowser.close();
         }
         
         currentBrowser = await initBrowser();
         currentPage = await initPage(currentBrowser);
+        await loadCookies(currentPage);
     } catch (error) {
         console.error("Erreur lors de la réinitialisation:", error);
     }
@@ -602,6 +608,8 @@ async function solveSudokuProcess() {
                 if (solvedCount >= MAX_SOLVED_PER_SESSION) {
                     console.log(`🔁 Limite de ${MAX_SOLVED_PER_SESSION} Sudokus atteinte, réinitialisation`);
                     solvedCount = 0;
+                    roundNumber = 1;
+                    await sleep(3 * 60 * 60 * 1000);
                     continue;
                 }
             }
