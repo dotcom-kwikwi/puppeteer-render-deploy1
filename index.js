@@ -230,8 +230,8 @@ async function checkScoreDifference() {
         const difference = myScore - lastPlaceScore;
         console.log(`📈 Différence: ${difference} points`);
 
-        if (difference >= 800) {
-            console.log(`🛑 Différence de 800+ points atteinte (${difference}), pause de 3 heures`);
+        if (difference >= 600) {
+            console.log(`🛑 Différence de 600+ points atteinte (${difference}), pause de 3 heures`);
             await sleep(3 * 60 * 60 * 1000);
             return await checkScoreDifference();
         }
