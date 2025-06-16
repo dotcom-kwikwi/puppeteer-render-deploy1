@@ -609,7 +609,7 @@ async function solveSudokuProcess() {
                     console.log(`🔁 Limite de ${MAX_SOLVED_PER_SESSION} Sudokus atteinte, réinitialisation`);
                     solvedCount = 0;
                     roundNumber = 1;
-                    await sleep(3 * 60 * 60 * 1000);
+                    await sleep(1 * 60 * 60 * 1000); // une heure de pause
                     continue;
                 }
             }
