@@ -603,19 +603,14 @@ async function solveSudokuProcess() {
         const maxRetries = 3;
 
         while (true) {
-            if (solvedCount > 0 && (solvedCount % 50 === 0 || solvedCount >= MAX_SOLVED_PER_SESSION)) {
+            if (solvedCount >= MAX_SOLVED_PER_SESSION) {
                 const shouldContinue = await checkScoreDifference();
                 await currentPage.goto(GAME_URL, { waitUntil: "networkidle2" });
                 await sleep(3000);
                 
-                if (!shouldContinue) continue;
-
-                if (solvedCount >= MAX_SOLVED_PER_SESSION) {
-                    console.log(`🔁 Limite de ${MAX_SOLVED_PER_SESSION} Sudokus atteinte, réinitialisation`);
-                    solvedCount = 0;
-                    roundNumber = 1;
-                    continue;
-                }
+                solvedCount = 0;
+                roundNumber = 1;
+                continue;
             }
 
             let retries = 0;
